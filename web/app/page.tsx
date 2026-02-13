@@ -296,7 +296,7 @@ export default function Page() {
             <>
               <div style={{ fontWeight: 700, fontSize: 14 }}>디스코드 로그인</div>
               <button
-                onClick={() => setIsLoggedIn(true)}
+                onClick={() => (window.location.href = "/auth/discord")}
                 style={{
                   width: "100%",
                   border: "1px solid rgba(255,255,255,0.14)",
@@ -337,7 +337,12 @@ export default function Page() {
 
               <div style={{ display: "flex", gap: 8 }}>
                 <button
-                  onClick={() => setIsLoggedIn(false)}
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/logout", { method: "POST", credentials: "include" });
+                    } catch {}
+                    window.location.reload();
+                  }}
                   style={{
                     flex: 1,
                     border: "1px solid rgba(255,255,255,0.14)",
