@@ -31,6 +31,7 @@ loadDotEnv();
 
 import { STORE } from "./store.js";
 import { PROFILES } from "./profileStore.js";
+import { QUEUE } from "./queueStore.js";
 import {
   createPartySchema,
   joinPartySchema,
