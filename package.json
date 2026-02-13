@@ -3,7 +3,7 @@
   "private": true,
   "workspaces": ["server", "web"],
   "scripts": {
-    "build": "npm -w web run build && npm -w server run build",
+    "build": "npm -w web run build && npm -w web run export && npm -w server run build",
     "start": "npm -w server run start",
     "dev": "npm -w server run dev"
   }

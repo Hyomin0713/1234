@@ -111,6 +111,16 @@ class PartyStore {
     return p;
   }
 
+  updateMemberName(partyId: string, memberId: string, displayName: string) {
+    const p = this.parties.get(partyId);
+    if (!p) return null;
+    const m = p.members.find((x) => x.userId === memberId);
+    if (!m) return null;
+    m.name = displayName.trim() || m.name;
+    p.updatedAt = Date.now();
+    return p;
+  }
+
   updateTitle(partyId: string, title: string) {
     const p = this.parties.get(partyId);
     if (!p) return null;
