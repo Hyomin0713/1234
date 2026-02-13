@@ -34,6 +34,8 @@ function loadDotEnv() {
 loadDotEnv();
 import { STORE } from "./store.js";
 import { PROFILES } from "./profileStore.js";
+import { QUEUE } from "./queueStore.js";
+import { USERS } from "./userStore.js";
 import { createPartySchema, joinPartySchema, rejoinSchema, buffsSchema, updateMemberSchema, updateTitleSchema, kickSchema, transferOwnerSchema, lockSchema, profileSchema } from "./validators.js";
 import { cleanupSessions, cookieSerialize, deleteSession, getSession, newSession, parseCookies } from "./auth.js";
 const PORT = Number(process.env.PORT ?? 8000);
@@ -53,6 +55,9 @@ function parseOrigins(raw) {
 }
 const ORIGINS = parseOrigins(ORIGIN_RAW);
 const app = express();
+function resolveNameToId(s) {
+    return USERS.resolveNameToId(s);
+}
 // In a single-domain setup, CORS isn't strictly needed, but keeping it helps local dev.
 app.use(cors({
     origin: ORIGINS === "*" ? true : ORIGINS,
@@ -98,15 +103,35 @@ function broadcastParty(partyId) {
         io.to(partyId).emit("partyUpdated", { party });
     broadcastParties();
 }
-function requireAuth(req, res) {
+function extractSessionId(req) {
     const cookies = parseCookies(req.headers.cookie);
-    const sid = cookies["ml_session"];
+    const fromCookie = cookies["ml_session"];
+    if (fromCookie)
+        return fromCookie;
+    // Fallback for rare cases where the cookie isn't persisted after OAuth redirect.
+    // The client may send the session via a header extracted from URL hash.
+    const fromHeader = req.headers["x-ml-session"] ?? undefined;
+    if (fromHeader && typeof fromHeader === "string")
+        return fromHeader;
+    return undefined;
+}
+function setSessionCookie(res, sessionId) {
+    res.setHeader("Set-Cookie", cookieSerialize("ml_session", sessionId, {
+        httpOnly: true,
+        secure: /^https:\/\//i.test(PUBLIC_URL),
+        sameSite: "lax",
+        path: "/",
+        maxAge: 60 * 60 * 24 * 7
+    }));
+}
+function requireAuth(req, res) {
+    const sid = extractSessionId(req);
     const s = getSession(sid);
     if (!s) {
         res.status(401).json({ error: "UNAUTHORIZED" });
         return null;
     }
-    return { user: s.user };
+    return { user: s.user, sessionId: s.sessionId };
 }
 app.get("/health", (_req, res) => res.json({ ok: true, now: Date.now() }));
 /** ---------------- Discord OAuth ---------------- */
@@ -155,16 +180,12 @@ app.get("/auth/discord/callback", rateLimit({ windowMs: 60_000, max: 30 }), asyn
             avatar: me.avatar ?? null
         };
         const s = newSession(user);
-        const isHttps = /^https:\/\//i.test(PUBLIC_URL);
-        res.setHeader("Set-Cookie", cookieSerialize("ml_session", s.sessionId, {
-            httpOnly: true,
-            secure: isHttps,
-            sameSite: "lax",
-            path: "/",
-            maxAge: 60 * 60 * 24 * 7
-        }));
-        // ✅ redirect back to root (single-domain)
-        res.redirect("/");
+        // Primary: persist cookie for same-domain deployment.
+        setSessionCookie(res, s.sessionId);
+        // Fallback: also pass sid via URL hash so the client can recover even if
+        // the browser did not persist the cookie after the OAuth redirect.
+        // (hash is not sent as Referer / request path to servers)
+        res.redirect(`/#sid=${encodeURIComponent(s.sessionId)}`);
     }
     catch (e) {
         console.error(e);
@@ -172,11 +193,52 @@ app.get("/auth/discord/callback", rateLimit({ windowMs: 60_000, max: 30 }), asyn
     }
 });
 /** ---------------- Auth APIs ---------------- */
+// --- profile APIs ---
+// NOTE: we intentionally avoid Express "middleware" style auth here.
+// This repo uses a cookie session helper (requireAuth) that returns the user,
+// so we call it inside each handler to keep types + control flow simple.
+app.get("/api/profile", (req, res) => {
+    const auth = requireAuth(req, res);
+    if (!auth)
+        return;
+    const u = auth.user;
+    const displayName = (u.global_name ?? u.username) || u.username;
+    const saved = USERS.upsert(u.id, { displayName });
+    return res.json({ ok: true, profile: saved });
+});
+app.put("/api/profile", express.json(), (req, res) => {
+    const auth = requireAuth(req, res);
+    if (!auth)
+        return;
+    const u = auth.user;
+    const displayName = (u.global_name ?? u.username) || u.username;
+    const body = req.body ?? {};
+    const next = USERS.upsert(u.id, {
+        displayName,
+        level: body.level,
+        job: body.job,
+        power: body.power,
+        blacklist: body.blacklist,
+    });
+    return res.json({ ok: true, profile: next });
+});
+app.get("/api/queue/status", (req, res) => {
+    const auth = requireAuth(req, res);
+    if (!auth)
+        return;
+    const cur = QUEUE.get(auth.user.id);
+    if (!cur)
+        return res.json({ ok: true, status: { state: "idle" } });
+    return res.json({ ok: true, status: { state: cur.state, channel: cur.channel, huntingGroundId: cur.huntingGroundId } });
+});
 app.get("/api/me", (req, res) => {
     const auth = requireAuth(req, res);
     if (!auth)
         return;
-    res.json({ user: auth.user, profile: PROFILES.get(auth.user.id) });
+    // Refresh cookie (and recover if auth came from x-ml-session header).
+    setSessionCookie(res, auth.sessionId);
+    // return full in-memory profile used by queue/blacklist UI
+    res.json({ user: auth.user, profile: USERS.get(auth.user.id) ?? null });
 });
 app.post("/api/logout", (req, res) => {
     const cookies = parseCookies(req.headers.cookie);
@@ -214,10 +276,12 @@ app.post("/api/party", (req, res) => {
         return;
     try {
         const body = createPartySchema.parse(req.body);
-        const party = STORE.createParty({ userId: auth.user.id, name: auth.user.global_name ?? auth.user.username }, body.title);
-        if (body.lockPassword) {
-            STORE.setLock(party.id, true, body.lockPassword);
-        }
+        const party = STORE.createParty({
+            title: body.title,
+            ownerId: auth.user.id,
+            ownerName: auth.user.global_name ?? auth.user.username,
+            lockPassword: body.lockPassword ?? null
+        });
         broadcastParties();
         res.json({ party });
     }
@@ -231,12 +295,12 @@ app.post("/api/party/join", (req, res) => {
         return;
     try {
         const body = joinPartySchema.parse(req.body);
-        const can = STORE.canJoin(body.partyId, body.lockPassword ?? undefined);
-        if (!can.ok)
-            throw new Error(can.reason);
-        const party = STORE.ensureMember(body.partyId, auth.user.id, auth.user.global_name ?? auth.user.username);
-        if (!party)
-            throw new Error("NOT_FOUND");
+        const party = STORE.joinParty({
+            partyId: body.partyId,
+            userId: auth.user.id,
+            name: auth.user.global_name ?? auth.user.username,
+            lockPassword: body.lockPassword ?? null
+        });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -250,9 +314,7 @@ app.post("/api/party/rejoin", (req, res) => {
         return;
     try {
         const body = rejoinSchema.parse(req.body);
-        const party = STORE.ensureMember(body.partyId, auth.user.id, auth.user.global_name ?? auth.user.username);
-        if (!party)
-            return res.status(404).json({ error: "NOT_FOUND" });
+        const party = STORE.rejoin({ partyId: body.partyId, userId: auth.user.id, name: auth.user.global_name ?? auth.user.username });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -267,7 +329,7 @@ app.post("/api/party/leave", (req, res) => {
     const partyId = String(req.body?.partyId ?? "");
     if (!partyId)
         return res.status(400).json({ error: "MISSING_PARTY_ID" });
-    STORE.removeMember(partyId, auth.user.id);
+    STORE.leaveParty({ partyId, userId: auth.user.id });
     broadcastParty(partyId);
     res.json({ ok: true });
 });
@@ -277,12 +339,7 @@ app.post("/api/party/title", (req, res) => {
         return;
     try {
         const body = updateTitleSchema.parse(req.body);
-        const cur = STORE.getParty(body.partyId);
-        if (!cur)
-            return res.status(404).json({ error: "NOT_FOUND" });
-        if (cur.ownerId !== auth.user.id)
-            return res.status(403).json({ error: "FORBIDDEN" });
-        const party = STORE.updateTitle(body.partyId, body.title);
+        const party = STORE.updateTitle({ partyId: body.partyId, userId: auth.user.id, title: body.title });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -296,14 +353,7 @@ app.post("/api/party/member", (req, res) => {
         return;
     try {
         const body = updateMemberSchema.parse(req.body);
-        const cur = STORE.getParty(body.partyId);
-        if (!cur)
-            return res.status(404).json({ error: "NOT_FOUND" });
-        const isOwner = cur.ownerId === auth.user.id;
-        const isSelf = body.memberId === auth.user.id;
-        if (!isOwner && !isSelf)
-            return res.status(403).json({ error: "FORBIDDEN" });
-        const party = STORE.updateMemberName(body.partyId, body.memberId, body.displayName);
+        const party = STORE.updateMemberName({ partyId: body.partyId, userId: auth.user.id, memberId: body.memberId, displayName: body.displayName });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -317,7 +367,7 @@ app.post("/api/party/buffs", (req, res) => {
         return;
     try {
         const body = buffsSchema.parse(req.body);
-        const party = STORE.setBuffs(body.partyId, auth.user.id, body.buffs);
+        const party = STORE.updateBuffs({ partyId: body.partyId, userId: auth.user.id, buffs: body.buffs });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -331,12 +381,7 @@ app.post("/api/party/lock", (req, res) => {
         return;
     try {
         const body = lockSchema.parse(req.body);
-        const cur = STORE.getParty(body.partyId);
-        if (!cur)
-            return res.status(404).json({ error: "NOT_FOUND" });
-        if (cur.ownerId !== auth.user.id)
-            return res.status(403).json({ error: "FORBIDDEN" });
-        const party = STORE.setLock(body.partyId, body.isLocked, body.lockPassword);
+        const party = STORE.setLock({ partyId: body.partyId, userId: auth.user.id, isLocked: body.isLocked, lockPassword: body.lockPassword });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -350,12 +395,7 @@ app.post("/api/party/kick", (req, res) => {
         return;
     try {
         const body = kickSchema.parse(req.body);
-        const cur = STORE.getParty(body.partyId);
-        if (!cur)
-            return res.status(404).json({ error: "NOT_FOUND" });
-        if (cur.ownerId !== auth.user.id)
-            return res.status(403).json({ error: "FORBIDDEN" });
-        const party = STORE.removeMember(body.partyId, body.userId);
+        const party = STORE.kick({ partyId: body.partyId, userId: auth.user.id, targetUserId: body.targetUserId });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -369,12 +409,7 @@ app.post("/api/party/transfer", (req, res) => {
         return;
     try {
         const body = transferOwnerSchema.parse(req.body);
-        const cur = STORE.getParty(body.partyId);
-        if (!cur)
-            return res.status(404).json({ error: "NOT_FOUND" });
-        if (cur.ownerId !== auth.user.id)
-            return res.status(403).json({ error: "FORBIDDEN" });
-        const party = STORE.transferOwner(body.partyId, body.newOwnerId);
+        const party = STORE.transferOwner({ partyId: body.partyId, userId: auth.user.id, newOwnerId: body.newOwnerId });
         broadcastParty(body.partyId);
         res.json({ party });
     }
@@ -383,11 +418,155 @@ app.post("/api/party/transfer", (req, res) => {
     }
 });
 /** ---------------- Socket.IO ---------------- */
+// socket ↔ user mapping (for queue cleanup on disconnect etc.)
+const socketToUserId = new Map();
+function requireSocketUser(socket) {
+    try {
+        const cookieHeader = (socket.handshake.headers?.cookie ?? "");
+        const cookies = parseCookies(cookieHeader);
+        const sid = cookies["ml_session"];
+        const s = getSession(sid);
+        return s?.user ?? null;
+    }
+    catch {
+        return null;
+    }
+}
 io.on("connection", (socket) => {
     socket.on("joinPartyRoom", ({ partyId }) => {
         if (!partyId)
             return;
         socket.join(partyId);
+    });
+    // --- queue matchmaking ---
+    function ensureLoggedIn() {
+        const u = requireSocketUser(socket);
+        if (!u) {
+            socket.emit("queue:status", { state: "idle", message: "로그인이 필요합니다." });
+            return null;
+        }
+        return u;
+    }
+    function emitQueueStatus(uid, socketId) {
+        const cur = QUEUE.get(uid);
+        const emitter = socketId ? io.to(socketId) : socket;
+        if (!cur || cur.state === "idle") {
+            emitter.emit("queue:status", { state: "idle" });
+            return;
+        }
+        if (cur.state === "searching") {
+            emitter.emit("queue:status", { state: "searching" });
+            return;
+        }
+        const isLeader = !!cur.leaderId && cur.leaderId === uid;
+        emitter.emit("queue:status", {
+            state: "matched",
+            channel: cur.channel ?? "",
+            isLeader,
+            channelReady: !!cur.channel,
+            partyId: cur.partyId ?? "",
+        });
+    }
+    socket.on("queue:hello", async (_p) => {
+        const u = ensureLoggedIn();
+        if (!u)
+            return;
+        socketToUserId.set(socket.id, u.id);
+        emitQueueStatus(u.id);
+    });
+    socket.on("queue:updateProfile", (p) => {
+        const u = ensureLoggedIn();
+        if (!u)
+            return;
+        socketToUserId.set(socket.id, u.id);
+        // store profile without joining a ground yet (huntingGroundId required for searching; we keep state via join)
+        // We'll just keep it in memory on the client; server will accept latest values when joining.
+    });
+    socket.on("queue:join", (p) => {
+        const u = ensureLoggedIn();
+        if (!u)
+            return;
+        const huntingGroundId = String(p?.huntingGroundId ?? "").trim();
+        if (!huntingGroundId)
+            return;
+        socketToUserId.set(socket.id, u.id);
+        const displayName = (u.global_name ?? u.username) || u.username;
+        USERS.upsert(u.id, { displayName, level: Number(p?.level ?? 1), job: p?.job ?? "전사", power: Number(p?.power ?? 0), blacklist: Array.isArray(p?.blacklist) ? p.blacklist : [] });
+        const up = QUEUE.upsert(socket.id, huntingGroundId, {
+            userId: u.id,
+            displayName,
+            level: Number(p?.level ?? 1),
+            job: p?.job ?? "전사",
+            power: Number(p?.power ?? 0),
+            blacklist: Array.isArray(p?.blacklist) ? p.blacklist : [],
+        });
+        if (!up.ok)
+            return;
+        socket.emit("queue:status", { state: "searching" });
+        const matched = QUEUE.tryMatch(huntingGroundId, resolveNameToId);
+        if (matched.ok) {
+            // Auto-create party for the matched pair (single-domain cookie session; party lives in memory)
+            try {
+                const leaderId = matched.leaderId;
+                const leaderEntry = matched.a.userId === leaderId ? matched.a : matched.b;
+                const otherEntry = leaderEntry === matched.a ? matched.b : matched.a;
+                // PartyStore.createParty returns a Party object. Keep payload minimal so TS stays strict.
+                const party = STORE.createParty({
+                    ownerId: leaderId,
+                    ownerName: leaderEntry.displayName,
+                    title: `사냥터 ${huntingGroundId}`,
+                    lockPassword: null
+                });
+                const partyId = party.id;
+                STORE.joinParty({ partyId, userId: otherEntry.userId, name: otherEntry.displayName });
+                // remember party id for both queue entries
+                QUEUE.setPartyForMatch(matched.matchId, partyId);
+                // join socket rooms for realtime party updates
+                const sa = io.sockets.sockets.get(matched.a.socketId);
+                const sb = io.sockets.sockets.get(matched.b.socketId);
+                sa?.join(partyId);
+                sb?.join(partyId);
+                broadcastParty(partyId);
+            }
+            catch (e) {
+                console.error("[queue] failed to auto-create party", e);
+            }
+            emitQueueStatus(matched.a.userId, matched.a.socketId);
+            emitQueueStatus(matched.b.userId, matched.b.socketId);
+        }
+    });
+    socket.on("queue:setChannel", (p) => {
+        const u = ensureLoggedIn();
+        if (!u)
+            return;
+        const letter = String(p?.letter ?? "").toUpperCase().trim();
+        const num = String(p?.num ?? "").trim().padStart(3, "0");
+        const channel = `${letter}-${num}`;
+        const r = QUEUE.setChannelByLeader(u.id, channel);
+        if (!r.ok) {
+            socket.emit("queue:toast", { type: "error", message: "채널 설정 실패" });
+            emitQueueStatus(u.id);
+            return;
+        }
+        for (const m of r.members) {
+            emitQueueStatus(m.userId, m.socketId);
+        }
+    });
+    socket.on("queue:leave", () => {
+        const u = requireSocketUser(socket);
+        const uid = u?.id ?? socketToUserId.get(socket.id);
+        if (uid) {
+            QUEUE.leave(uid);
+            socketToUserId.delete(socket.id);
+        }
+        socket.emit("queue:status", { state: "idle" });
+    });
+    socket.on("disconnect", () => {
+        const uid = socketToUserId.get(socket.id);
+        if (uid) {
+            QUEUE.leave(uid);
+            socketToUserId.delete(socket.id);
+        }
     });
 });
 // Serve static web build (Next export output)

@@ -14,23 +14,27 @@ function hash(pw) {
 }
 class PartyStore {
     parties = new Map();
-    createParty(owner, title) {
+    createParty(args) {
         let id = randCode();
         while (this.parties.has(id))
             id = randCode();
         const now = Date.now();
         const party = {
             id,
-            title: title.trim() || "파티",
-            ownerId: owner.userId,
+            title: args.title.trim() || "파티",
+            ownerId: args.ownerId,
             isLocked: false,
             lockPasswordHash: null,
             members: [
-                { userId: owner.userId, name: owner.name, joinedAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
+                { userId: args.ownerId, name: args.ownerName, joinedAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
             ],
             createdAt: now,
             updatedAt: now
         };
+        if (args.lockPassword) {
+            party.isLocked = true;
+            party.lockPasswordHash = hash(args.lockPassword);
+        }
         this.parties.set(id, party);
         return party;
     }
@@ -75,6 +79,91 @@ class PartyStore {
         }
         return p;
     }
+    joinParty(args) {
+        const chk = this.canJoin(args.partyId, args.lockPassword ?? undefined);
+        if (!chk.ok)
+            throw new Error(chk.reason);
+        const p = this.ensureMember(args.partyId, args.userId, args.name);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        return p;
+    }
+    rejoin(args) {
+        const p = this.getParty(args.partyId);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        if (!p.members.some((m) => m.userId === args.userId)) {
+            this.ensureMember(args.partyId, args.userId, args.name);
+        }
+        return this.getParty(args.partyId);
+    }
+    leaveParty(args) {
+        this.removeMember(args.partyId, args.userId);
+        return this.getParty(args.partyId);
+    }
+    updateTitle(args) {
+        const p = this.getParty(args.partyId);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        if (p.ownerId !== args.userId)
+            throw new Error("NOT_OWNER");
+        const out = this.updateTitleInternal(args.partyId, args.title);
+        if (!out)
+            throw new Error("NOT_FOUND");
+        return out;
+    }
+    updateMemberName(args) {
+        const p = this.getParty(args.partyId);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        if (args.userId !== args.memberId && p.ownerId !== args.userId)
+            throw new Error("FORBIDDEN");
+        const m = p.members.find((x) => x.userId === args.memberId);
+        if (!m)
+            throw new Error("NOT_FOUND");
+        m.name = args.displayName.trim() || m.name;
+        p.updatedAt = Date.now();
+        return p;
+    }
+    updateBuffs(args) {
+        const out = this.setBuffs(args.partyId, args.userId, args.buffs);
+        if (!out)
+            throw new Error("NOT_FOUND");
+        return out;
+    }
+    kick(args) {
+        const p = this.getParty(args.partyId);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        if (p.ownerId !== args.userId)
+            throw new Error("NOT_OWNER");
+        const out = this.removeMember(args.partyId, args.targetUserId);
+        if (!out)
+            throw new Error("NOT_FOUND");
+        return out;
+    }
+    transferOwner(args) {
+        const p = this.getParty(args.partyId);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        if (p.ownerId !== args.userId)
+            throw new Error("NOT_OWNER");
+        const out = this.transferOwnerInternal(args.partyId, args.newOwnerId);
+        if (!out)
+            throw new Error("NOT_FOUND");
+        return out;
+    }
+    setLock(args) {
+        const p = this.getParty(args.partyId);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        if (p.ownerId !== args.userId)
+            throw new Error("NOT_OWNER");
+        const out = this.setLockInternal(args.partyId, args.isLocked, args.lockPassword ?? null);
+        if (!out)
+            throw new Error("NOT_FOUND");
+        return out;
+    }
     setBuffs(partyId, userId, buffs) {
         const p = this.parties.get(partyId);
         if (!p)
@@ -90,18 +179,7 @@ class PartyStore {
         p.updatedAt = Date.now();
         return p;
     }
-    updateMemberName(partyId, memberId, displayName) {
-        const p = this.parties.get(partyId);
-        if (!p)
-            return null;
-        const m = p.members.find((x) => x.userId === memberId);
-        if (!m)
-            return null;
-        m.name = displayName.trim() || m.name;
-        p.updatedAt = Date.now();
-        return p;
-    }
-    updateTitle(partyId, title) {
+    updateTitleInternal(partyId, title) {
         const p = this.parties.get(partyId);
         if (!p)
             return null;
@@ -109,7 +187,7 @@ class PartyStore {
         p.updatedAt = Date.now();
         return p;
     }
-    transferOwner(partyId, newOwnerId) {
+    transferOwnerInternal(partyId, newOwnerId) {
         const p = this.parties.get(partyId);
         if (!p)
             return null;
@@ -119,7 +197,7 @@ class PartyStore {
         p.updatedAt = Date.now();
         return p;
     }
-    setLock(partyId, isLocked, password) {
+    setLockInternal(partyId, isLocked, password) {
         const p = this.parties.get(partyId);
         if (!p)
             return null;

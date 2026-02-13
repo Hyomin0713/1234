@@ -548,14 +548,15 @@ io.on("connection", (socket) => {
         const leaderEntry = matched.a.userId === leaderId ? matched.a : matched.b;
         const otherEntry = leaderEntry === matched.a ? matched.b : matched.a;
 
-        const partyId = STORE.createParty({
+        // PartyStore.createParty returns a Party object. Keep payload minimal so TS stays strict.
+        const party = STORE.createParty({
           ownerId: leaderId,
           ownerName: leaderEntry.displayName,
           title: `사냥터 ${huntingGroundId}`,
-          huntingGroundId,
-          locked: false,
-          password: undefined,
+          lockPassword: null
         });
+        const partyId = party.id;
+
         STORE.joinParty({ partyId, userId: otherEntry.userId, name: otherEntry.displayName });
 
         // remember party id for both queue entries

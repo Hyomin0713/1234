@@ -58,7 +58,7 @@ export const updateTitleSchema = obj((v) => {
 export const kickSchema = obj((v) => {
     if (!v || typeof v !== "object")
         throw new Error("INVALID_BODY");
-    return { partyId: String(v.partyId ?? "").trim(), userId: String(v.userId ?? "").trim() };
+    return { partyId: String(v.partyId ?? "").trim(), targetUserId: String(v.targetUserId ?? "").trim() };
 });
 export const transferOwnerSchema = obj((v) => {
     if (!v || typeof v !== "object")
