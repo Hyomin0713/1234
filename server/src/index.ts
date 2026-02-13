@@ -414,6 +414,20 @@ app.post("/api/party/transfer", (req, res) => {
 });
 
 /** ---------------- Socket.IO ---------------- */
+// socket ↔ user mapping (for queue cleanup on disconnect etc.)
+const socketToUserId = new Map<string, string>();
+
+function requireSocketUser(socket: import("socket.io").Socket): DiscordUser | null {
+  try {
+    const cookieHeader = (socket.handshake.headers?.cookie ?? "") as string;
+    const cookies = parseCookies(cookieHeader);
+    const sid = cookies["ml_session"];
+    const s = getSession(sid);
+    return s?.user ?? null;
+  } catch {
+    return null;
+  }
+}
 io.on("connection", (socket) => {
   socket.on("joinPartyRoom", ({ partyId }: { partyId: string }) => {
     if (!partyId) return;
