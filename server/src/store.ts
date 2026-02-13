@@ -33,22 +33,26 @@ function hash(pw: string) {
 class PartyStore {
   private parties = new Map<string, Party>();
 
-  createParty(owner: { userId: string; name: string }, title: string) {
+  createParty(args: { title: string; ownerId: string; ownerName: string; lockPassword?: string | null }) {
     let id = randCode();
     while (this.parties.has(id)) id = randCode();
     const now = Date.now();
     const party: Party = {
       id,
-      title: title.trim() || "파티",
-      ownerId: owner.userId,
+      title: args.title.trim() || "파티",
+      ownerId: args.ownerId,
       isLocked: false,
       lockPasswordHash: null,
       members: [
-        { userId: owner.userId, name: owner.name, joinedAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
+        { userId: args.ownerId, name: args.ownerName, joinedAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
       ],
       createdAt: now,
       updatedAt: now
     };
+    if (args.lockPassword) {
+      party.isLocked = true;
+      party.lockPasswordHash = hash(args.lockPassword);
+    }
     this.parties.set(id, party);
     return party;
   }
@@ -97,6 +101,83 @@ class PartyStore {
     return p;
   }
 
+
+  joinParty(args: { partyId: string; userId: string; name: string; lockPassword?: string | null }) {
+    const chk = this.canJoin(args.partyId, args.lockPassword ?? undefined);
+    if (!chk.ok) throw new Error(chk.reason);
+    const p = this.ensureMember(args.partyId, args.userId, args.name);
+    if (!p) throw new Error("NOT_FOUND");
+    return p;
+  }
+
+  rejoin(args: { partyId: string; userId: string; name: string }) {
+    const p = this.getParty(args.partyId);
+    if (!p) throw new Error("NOT_FOUND");
+    if (!p.members.some((m) => m.userId === args.userId)) {
+      this.ensureMember(args.partyId, args.userId, args.name);
+    }
+    return this.getParty(args.partyId);
+  }
+
+  leaveParty(args: { partyId: string; userId: string }) {
+    this.removeMember(args.partyId, args.userId);
+    return this.getParty(args.partyId);
+  }
+
+  updateTitle(args: { partyId: string; userId: string; title: string }) {
+    const p = this.getParty(args.partyId);
+    if (!p) throw new Error("NOT_FOUND");
+    if (p.ownerId !== args.userId) throw new Error("NOT_OWNER");
+    const out = this.updateTitleInternal(args.partyId, args.title);
+    if (!out) throw new Error("NOT_FOUND");
+    return out;
+  }
+
+  updateMemberName(args: { partyId: string; userId: string; memberId: string; displayName: string }) {
+    const p = this.getParty(args.partyId);
+    if (!p) throw new Error("NOT_FOUND");
+    if (args.userId !== args.memberId && p.ownerId !== args.userId) throw new Error("FORBIDDEN");
+    const m = p.members.find((x) => x.userId === args.memberId);
+    if (!m) throw new Error("NOT_FOUND");
+    m.name = args.displayName.trim() || m.name;
+    p.updatedAt = Date.now();
+    return p;
+  }
+
+  updateBuffs(args: { partyId: string; userId: string; buffs: Partial<Buffs> }) {
+    const out = this.setBuffs(args.partyId, args.userId, args.buffs);
+    if (!out) throw new Error("NOT_FOUND");
+    return out;
+  }
+
+  kick(args: { partyId: string; userId: string; targetUserId: string }) {
+    const p = this.getParty(args.partyId);
+    if (!p) throw new Error("NOT_FOUND");
+    if (p.ownerId !== args.userId) throw new Error("NOT_OWNER");
+    const out = this.removeMember(args.partyId, args.targetUserId);
+    if (!out) throw new Error("NOT_FOUND");
+    return out;
+  }
+
+  transferOwner(args: { partyId: string; userId: string; newOwnerId: string }) {
+    const p = this.getParty(args.partyId);
+    if (!p) throw new Error("NOT_FOUND");
+    if (p.ownerId !== args.userId) throw new Error("NOT_OWNER");
+    const out = this.transferOwnerInternal(args.partyId, args.newOwnerId);
+    if (!out) throw new Error("NOT_FOUND");
+    return out;
+  }
+
+  setLock(args: { partyId: string; userId: string; isLocked: boolean; lockPassword?: string | null }) {
+    const p = this.getParty(args.partyId);
+    if (!p) throw new Error("NOT_FOUND");
+    if (p.ownerId !== args.userId) throw new Error("NOT_OWNER");
+    const out = this.setLockInternal(args.partyId, args.isLocked, args.lockPassword ?? null);
+    if (!out) throw new Error("NOT_FOUND");
+    return out;
+  }
+
+
   setBuffs(partyId: string, userId: string, buffs: Partial<Buffs>) {
     const p = this.parties.get(partyId);
     if (!p) return null;
@@ -111,7 +192,7 @@ class PartyStore {
     return p;
   }
 
-  updateTitle(partyId: string, title: string) {
+  updateTitleInternal(partyId: string, title: string) {
     const p = this.parties.get(partyId);
     if (!p) return null;
     p.title = title.trim() || p.title;
@@ -119,7 +200,7 @@ class PartyStore {
     return p;
   }
 
-  transferOwner(partyId: string, newOwnerId: string) {
+  transferOwnerInternal(partyId: string, newOwnerId: string) {
     const p = this.parties.get(partyId);
     if (!p) return null;
     if (!p.members.some((m) => m.userId === newOwnerId)) return null;
@@ -128,7 +209,7 @@ class PartyStore {
     return p;
   }
 
-  setLock(partyId: string, isLocked: boolean, password: string | null) {
+  setLockInternal(partyId: string, isLocked: boolean, password: string | null) {
     const p = this.parties.get(partyId);
     if (!p) return null;
     p.isLocked = isLocked;

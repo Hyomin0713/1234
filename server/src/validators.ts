@@ -55,9 +55,9 @@ export const updateTitleSchema = obj<{ partyId: string; title: string }>((v) => 
   return { partyId: String(v.partyId ?? "").trim(), title: String(v.title ?? "").trim() };
 });
 
-export const kickSchema = obj<{ partyId: string; userId: string }>((v) => {
+export const kickSchema = obj<{ partyId: string; targetUserId: string }>((v) => {
   if (!v || typeof v !== "object") throw new Error("INVALID_BODY");
-  return { partyId: String(v.partyId ?? "").trim(), userId: String(v.userId ?? "").trim() };
+  return { partyId: String(v.partyId ?? "").trim(), targetUserId: String(v.targetUserId ?? "").trim() };
 });
 
 export const transferOwnerSchema = obj<{ partyId: string; newOwnerId: string }>((v) => {

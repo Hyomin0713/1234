@@ -279,7 +279,7 @@ app.post("/api/party/rejoin", (req, res) => {
   if (!auth) return;
   try {
     const body = rejoinSchema.parse(req.body);
-    const party = STORE.rejoin({ partyId: body.partyId, userId: auth.user.id });
+    const party = STORE.rejoin({ partyId: body.partyId, userId: auth.user.id, name: auth.user.global_name ?? auth.user.username });
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -315,7 +315,7 @@ app.post("/api/party/member", (req, res) => {
   if (!auth) return;
   try {
     const body = updateMemberSchema.parse(req.body);
-    const party = STORE.updateMemberName({ partyId: body.partyId, userId: auth.user.id, name: body.name });
+    const party = STORE.updateMemberName({ partyId: body.partyId, userId: auth.user.id, memberId: body.memberId, displayName: body.displayName });
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -341,7 +341,7 @@ app.post("/api/party/lock", (req, res) => {
   if (!auth) return;
   try {
     const body = lockSchema.parse(req.body);
-    const party = STORE.setLock({ partyId: body.partyId, userId: auth.user.id, lockPassword: body.lockPassword });
+    const party = STORE.setLock({ partyId: body.partyId, userId: auth.user.id, isLocked: body.isLocked, lockPassword: body.lockPassword });
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -367,7 +367,7 @@ app.post("/api/party/transfer", (req, res) => {
   if (!auth) return;
   try {
     const body = transferOwnerSchema.parse(req.body);
-    const party = STORE.transferOwner({ partyId: body.partyId, userId: auth.user.id, targetUserId: body.targetUserId });
+    const party = STORE.transferOwner({ partyId: body.partyId, userId: auth.user.id, newOwnerId: body.newOwnerId });
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
