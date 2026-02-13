@@ -437,6 +437,9 @@ io.on("connection", (socket) => {
         if (!partyId)
             return;
         socket.join(partyId);
+        const party = STORE.getParty(partyId);
+        if (party)
+            socket.emit("partyUpdated", { party });
     });
     // --- queue matchmaking ---
     function ensureLoggedIn() {

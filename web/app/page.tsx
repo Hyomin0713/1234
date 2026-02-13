@@ -704,17 +704,55 @@ export default function Page() {
             )}
 
             {matchState === "searching" && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,0.65)",
+                      animation: "pulse 1.2s ease-in-out infinite",
+                      boxShadow: "0 0 0 1px rgba(255,255,255,0.10)",
+                    }}
+                  />
+                  <div style={{ fontWeight: 850, letterSpacing: 0.2 }}>{`매칭중입니다${".".repeat(dotTick)}`}</div>
+                </div>
+
+                {/* 롤처럼 ‘기다리는 느낌’만 주는 인디케이터 */}
                 <div
                   style={{
-                    width: 10,
-                    height: 10,
+                    height: 8,
                     borderRadius: 999,
-                    background: "rgba(255,255,255,0.65)",
-                    animation: "pulse 1.2s ease-in-out infinite",
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid rgba(255,255,255,0.10)",
+                    overflow: "hidden",
+                    position: "relative",
+                    maxWidth: 260,
                   }}
-                />
-                <div style={{ fontWeight: 800 }}>{`매칭중입니다${".".repeat(dotTick)}`} . . .</div>
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      width: "45%",
+                      borderRadius: 999,
+                      background: "rgba(120,200,255,0.20)",
+                      borderRight: "1px solid rgba(120,200,255,0.35)",
+                      animation: "mlqIndeterminate 1.35s ease-in-out infinite",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background:
+                        "linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.18) 50%, rgba(255,255,255,0) 100%)",
+                      animation: "mlqSweep 1.8s linear infinite",
+                      opacity: 0.6,
+                    }}
+                  />
+                </div>
               </div>
             )}
 
@@ -832,6 +870,17 @@ export default function Page() {
               @keyframes pulse {
                 0%, 100% { transform: scale(1); opacity: .55; }
                 50% { transform: scale(1.4); opacity: 1; }
+              }
+
+              @keyframes mlqIndeterminate {
+                0% { transform: translateX(-110%); }
+                50% { transform: translateX(40%); }
+                100% { transform: translateX(210%); }
+              }
+
+              @keyframes mlqSweep {
+                0% { transform: translateX(-30%); }
+                100% { transform: translateX(30%); }
               }
             `}</style>
           </div>
