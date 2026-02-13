@@ -461,10 +461,11 @@ io.on("connection", (socket) => {
   socket.on("joinPartyRoom", ({ partyId }: { partyId: string }) => {
     if (!partyId) return;
     socket.join(partyId);
+    const party = STORE.getParty(partyId);
+    if (party) socket.emit("partyUpdated", { party });
   });
 
-
-  // --- queue matchmaking ---
+// --- queue matchmaking ---
   function ensureLoggedIn() {
     const u = requireSocketUser(socket);
     if (!u) {

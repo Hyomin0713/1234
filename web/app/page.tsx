@@ -152,6 +152,8 @@ export default function Page() {
   const [isLeader, setIsLeader] = useState(false);
   const [channelReady, setChannelReady] = useState(false);
   const [partyId, setPartyId] = useState<string>("");
+  const [party, setParty] = useState<any | null>(null);
+  const [myBuffs, setMyBuffs] = useState<{ simbi: number; ppeongbi: number; syapbi: number }>({ simbi: 0, ppeongbi: 0, syapbi: 0 });
   const [channelLetter, setChannelLetter] = useState("A");
   const [channelNum, setChannelNum] = useState("001");
 
@@ -167,6 +169,11 @@ export default function Page() {
 
 
   const socketRef = useRef<Socket | null>(null);
+
+  const getSid = () => {
+    if (typeof window === "undefined") return "";
+    return window.location.hash.startsWith("#sid=") ? decodeURIComponent(window.location.hash.slice("#sid=".length)) : "";
+  };
   const [sockConnected, setSockConnected] = useState(false);
 
   const filtered = useMemo(() => {
@@ -220,6 +227,12 @@ export default function Page() {
       setPartyId(p.partyId ?? "");
     });
 
+    sck.on("partyUpdated", (payload: any) => {
+      if (!payload?.party) return;
+      setParty(payload.party);
+    });
+
+
     // ask server to reattach any existing queue state (based on nickname)
     sck.emit("queue:hello", {
       nickname,
@@ -236,6 +249,34 @@ export default function Page() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
+  useEffect(() => {
+    // restore last known party (best-effort). This only affects UI; membership is still server-side.
+    const saved = safeLocalGet("mlq.partyId") as string;
+    if (saved && !partyId) setPartyId(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const sck = socketRef.current;
+    if (!sck) return;
+    if (!partyId) return;
+    safeLocalSet("mlq.partyId", partyId);
+    sck.emit("joinPartyRoom", { partyId });
+  }, [partyId]);
+
+  useEffect(() => {
+    // keep my buffs input in sync when party updates
+    if (!party || !me) return;
+    const my = (party.members ?? []).find((m: any) => m.userId === me.userId);
+    if (!my) return;
+    setMyBuffs({
+      simbi: Number(my.buffs?.simbi ?? 0),
+      ppeongbi: Number(my.buffs?.ppeongbi ?? 0),
+      syapbi: Number(my.buffs?.syapbi ?? 0),
+    });
+  }, [party, me]);
+
   useEffect(() => {
     // keep server updated when user edits
     const sck = socketRef.current;
@@ -243,6 +284,23 @@ export default function Page() {
     if (!sockConnected) return;
     sck.emit("queue:updateProfile", { nickname, level, job, power, blacklist });
   }, [nickname, level, job, power, blacklist, sockConnected]);
+
+
+  const pushMyBuffs = async (next: { simbi: number; ppeongbi: number; syapbi: number }) => {
+    if (!partyId) return;
+    try {
+      const sid = getSid();
+      await fetch("/api/party/buffs", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sid ? { "x-ml-session": sid } : {}),
+        },
+        body: JSON.stringify({ partyId, buffs: next }),
+      });
+    } catch {}
+  };
 
   const joinQueue = () => {
     const sck = socketRef.current;
@@ -879,8 +937,82 @@ export default function Page() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div style={{ ...card, background: "rgba(255,255,255,0.04)" }}>
                 <div style={{ padding: 14 }}>
-                  <div style={{ fontWeight: 900, marginBottom: 6 }}>파티 버프 (예정)</div>
-                  <div style={muted}>심비 / 뻥비 / 샾비 항목을 파티에 실시간 공유 (다음 단계)</div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ fontWeight: 900 }}>파티 버프</div>
+                    {partyId ? <div style={{ ...chip, opacity: 0.9 }}>방장코드: <span style={{ fontWeight: 900, marginLeft: 6 }}>{partyId}</span></div> : <div style={muted}>파티 없음</div>}
+                  </div>
+
+                  {party ? (
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.7fr 0.7fr 0.7fr", gap: 8, fontSize: 12, color: "rgba(230,232,238,0.7)", marginBottom: 8 }}>
+                        <div>멤버</div>
+                        <div style={{ textAlign: "center" }}>심비</div>
+                        <div style={{ textAlign: "center" }}>뻥비</div>
+                        <div style={{ textAlign: "center" }}>샾비</div>
+                      </div>
+
+                      {(party.members ?? []).map((m: any) => {
+                        const isMe = me && m.userId === me.userId;
+                        return (
+                          <div key={m.memberId} style={{ display: "grid", gridTemplateColumns: "1.2fr 0.7fr 0.7fr 0.7fr", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 10, height: 10, borderRadius: 999, background: isMe ? "rgba(83, 242, 170, 0.85)" : "rgba(255,255,255,0.25)" }} />
+                              <div style={{ fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.displayName}</div>
+                              {party.ownerId === m.userId ? <div style={{ ...chip, padding: "2px 8px", fontSize: 11, opacity: 0.9 }}>방장</div> : null}
+                            </div>
+
+                            {isMe ? (
+                              <>
+                                <input
+                                  style={{ ...input, textAlign: "center" }}
+                                  inputMode="numeric"
+                                  value={String(myBuffs.simbi)}
+                                  onChange={(e) => {
+                                    const v = Math.max(0, Math.min(999, Number(e.target.value.replace(/[^0-9]/g, "")) || 0));
+                                    const next = { ...myBuffs, simbi: v };
+                                    setMyBuffs(next);
+                                    pushMyBuffs(next);
+                                  }}
+                                />
+                                <input
+                                  style={{ ...input, textAlign: "center" }}
+                                  inputMode="numeric"
+                                  value={String(myBuffs.ppeongbi)}
+                                  onChange={(e) => {
+                                    const v = Math.max(0, Math.min(999, Number(e.target.value.replace(/[^0-9]/g, "")) || 0));
+                                    const next = { ...myBuffs, ppeongbi: v };
+                                    setMyBuffs(next);
+                                    pushMyBuffs(next);
+                                  }}
+                                />
+                                <input
+                                  style={{ ...input, textAlign: "center" }}
+                                  inputMode="numeric"
+                                  value={String(myBuffs.syapbi)}
+                                  onChange={(e) => {
+                                    const v = Math.max(0, Math.min(999, Number(e.target.value.replace(/[^0-9]/g, "")) || 0));
+                                    const next = { ...myBuffs, syapbi: v };
+                                    setMyBuffs(next);
+                                    pushMyBuffs(next);
+                                  }}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <div style={{ ...chip, justifyContent: "center" }}>{m.buffs?.simbi ?? 0}</div>
+                                <div style={{ ...chip, justifyContent: "center" }}>{m.buffs?.ppeongbi ?? 0}</div>
+                                <div style={{ ...chip, justifyContent: "center" }}>{m.buffs?.syapbi ?? 0}</div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      <div style={muted}>내 버프만 수정 가능하며, 변경 즉시 파티에 공유됩니다.</div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 10, ...muted }}>매칭/파티 참여 후 자동으로 표시됩니다.</div>
+                  )}
                 </div>
               </div>
               <div style={{ ...card, background: "rgba(255,255,255,0.04)" }}>
