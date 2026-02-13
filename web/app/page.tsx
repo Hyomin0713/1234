@@ -6,6 +6,7 @@ import { io, type Socket } from "socket.io-client";
 type Job = "전사" | "도적" | "궁수" | "마법사";
 type MatchState = "idle" | "searching" | "matched";
 type QueueStatusPayload = { state: MatchState; channel?: string; message?: string };
+type MeResponse = { user: { id: string; username: string; global_name: string | null; avatar: string | null }; profile?: { displayName: string } | null };
 
 
 type HuntingGround = {
@@ -83,10 +84,9 @@ function safeLocalSet(key: string, value: any) {
 
 export default function Page() {
   // 1) 디스코드 로그인 (현재는 UI만 / 추후 /auth/discord 연결)
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [discordName, setDiscordName] = useState("효민");
-  const [nickname, setNickname] = useState("효민");
-  const [discordTag, setDiscordTag] = useState("Hyomin0713");
+  const [me, setMe] = useState<MeResponse | null>(null);
+  const isLoggedIn = !!me?.user?.id;
+  const nickname = (me?.profile?.displayName ?? me?.user?.global_name ?? me?.user?.username ?? "").trim();
 
   // 2) 사냥터 검색
   const [query, setQuery] = useState("");
@@ -141,6 +141,7 @@ export default function Page() {
 
   useEffect(() => {
     const sck = io({
+      withCredentials: true,
       withCredentials: true,
       transports: ["websocket", "polling"],
     });
@@ -274,6 +275,113 @@ export default function Page() {
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>메랜큐</div>
           <div style={{ ...muted }}>beta</div>
+
+              {/* Party info */}
+              <div style={cardStyle}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "-0.01em" }}>파티 정보</div>
+                  {party?.partyId ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, opacity: 0.88 }}>
+                      <div>코드: <span style={{ fontWeight: 900 }}>{party.partyId}</span></div>
+                      <div style={{ width: 1, height: 12, background: "rgba(255,255,255,0.12)" }} />
+                      <div>채널: <span style={{ fontWeight: 900 }}>{party.channel}</span></div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, opacity: 0.65 }}>매칭 후 자동 생성</div>
+                  )}
+                </div>
+
+                {!party ? (
+                  <div style={{ marginTop: 10, fontSize: 13, opacity: 0.75 }}>아직 파티가 없습니다.</div>
+                ) : (
+                  <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>멤버</div>
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {party.members.map((m) => (
+                          <div key={m.userId} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13 }}>
+                            <div style={{ opacity: 0.92 }}>{m.displayName}{party.ownerId === m.userId ? " (방장)" : ""}</div>
+                            <div style={{ fontSize: 12, opacity: 0.55 }}>{m.userId}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: 10 }}>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>채널 설정</div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <input
+                          value={channelInput}
+                          onChange={(e) => setChannelInput(e.target.value.toUpperCase())}
+                          placeholder="예: A-001"
+                          style={inputStyle}
+                        />
+                        <button
+                          onClick={() => socket?.emit("party:setChannel", { channel: channelInput })}
+                          style={{
+                            minHeight: 44,
+                            borderRadius: 12,
+                            padding: "0 14px",
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            background: "rgba(255,255,255,0.08)",
+                            color: "rgba(255,255,255,0.92)",
+                            fontWeight: 900,
+                            whiteSpace: "nowrap",
+                            cursor: "pointer",
+                          }}
+                          title="방장만 변경 가능합니다"
+                        >
+                          적용
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.6 }}>형식: A~Z-001~999 (예: C-120)</div>
+                    </div>
+
+                    <div style={{ display: "grid", gap: 8 }}>
+                      <div style={{ fontSize: 12, opacity: 0.7 }}>버프 공유</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>심비</div>
+                          <input type="number" value={party.buffs.simb} onChange={(e) => socket?.emit("party:updateBuffs", { simb: Number(e.target.value) })} style={inputStyle} />
+                        </div>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>뻥비</div>
+                          <input type="number" value={party.buffs.bbeong} onChange={(e) => socket?.emit("party:updateBuffs", { bbeong: Number(e.target.value) })} style={inputStyle} />
+                        </div>
+                        <div style={{ display: "grid", gap: 6 }}>
+                          <div style={{ fontSize: 12, opacity: 0.7 }}>샾비</div>
+                          <input type="number" value={party.buffs.sharp} onChange={(e) => socket?.emit("party:updateBuffs", { sharp: Number(e.target.value) })} style={inputStyle} />
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 2 }}>
+                        <button
+                          onClick={() => {
+                            socket?.emit("party:leave");
+                            fetch("/api/party/leave", { method: "POST", credentials: "include" }).catch(() => {});
+                            setParty(null);
+                          }}
+                          style={{
+                            borderRadius: 12,
+                            padding: "10px 12px",
+                            border: "1px solid rgba(255,255,255,0.14)",
+                            background: "rgba(255,255,255,0.06)",
+                            color: "rgba(255,255,255,0.9)",
+                            fontWeight: 900,
+                            fontSize: 13,
+                            cursor: "pointer",
+                          }}
+                          title="파티 나가기"
+                        >
+                          파티 나가기
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+
         </div>
 
         <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
@@ -292,11 +400,11 @@ export default function Page() {
                   cursor: "pointer",
                   fontWeight: 700,
                 }}
-                title="(데모) 로그인 토글"
+                title="디스코드 OAuth 로그인"
               >
                 디스코드로 로그인
               </button>
-              <div style={muted}>※ 현재는 화면/흐름 먼저 잡는 중. 로그인 연결은 다음 단계에서 붙입니다.</div>
+              <div style={muted}>※ 로그인 후 레벨/직업/스공/블랙리스트 입력 → 사냥터 큐 참가 가능</div>
             </>
           ) : (
             <>
@@ -393,7 +501,7 @@ export default function Page() {
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>큐 정보</div>
               <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>레벨/직업 입력은 매칭 조건에 반영됩니다.</div>
-          <div style={muted}>{matchState === "idle" ? "대기" : matchState === "searching" ? "매칭중..." : `완료 (${channel || "채널 발급"})`}</div>
+          <div style={muted}>{matchState === "idle" ? "대기" : matchState === "searching" ? "{`매칭중${".".repeat(dotTick)}`}" : `완료 (${channel || "채널 발급"})`}</div>
         </div>
 
         <div style={{ padding: 14, display: "grid", gap: 10 }}>
@@ -542,7 +650,7 @@ export default function Page() {
             <div style={{ fontWeight: 800 }}>매칭 상태</div>
 
             {matchState === "idle" && (
-              <div style={muted}>큐에 참가하면 “매칭중...” 표시 후 채널을 안내합니다.</div>
+              <div style={muted}>큐에 참가하면 “{`매칭중${".".repeat(dotTick)}`}” 표시 후 채널을 안내합니다.</div>
             )}
 
             {matchState === "searching" && (
@@ -556,7 +664,7 @@ export default function Page() {
                     animation: "pulse 1.2s ease-in-out infinite",
                   }}
                 />
-                <div style={{ fontWeight: 800 }}>매칭중입니다 . . .</div>
+                <div style={{ fontWeight: 800 }}>{`매칭중입니다${".".repeat(dotTick)}`} . . .</div>
               </div>
             )}
 
