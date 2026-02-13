@@ -5,7 +5,7 @@ import { io, type Socket } from "socket.io-client";
 
 type Job = "전사" | "도적" | "궁수" | "마법사";
 type MatchState = "idle" | "searching" | "matched";
-type QueueStatusPayload = { state: MatchState; channel?: string; message?: string };
+type QueueStatusPayload = { state: MatchState; channel?: string; message?: string; isLeader?: boolean; channelReady?: boolean };
 type MeResponse = { user: { id: string; username: string; global_name: string | null; avatar: string | null }; profile?: { displayName: string } | null };
 
 
@@ -149,6 +149,10 @@ export default function Page() {
   // 매칭 상태
   const [matchState, setMatchState] = useState<MatchState>("idle");
   const [channel, setChannel] = useState<string>("");
+  const [isLeader, setIsLeader] = useState(false);
+  const [channelReady, setChannelReady] = useState(false);
+  const [channelLetter, setChannelLetter] = useState("A");
+  const [channelNum, setChannelNum] = useState("001");
 
   const [dotTick, setDotTick] = useState(1);
   useEffect(() => {
@@ -210,6 +214,8 @@ export default function Page() {
       if (!p) return;
       setMatchState(p.state);
       setChannel(p.channel ?? "");
+      setIsLeader(!!p.isLeader);
+      setChannelReady(!!p.channelReady);
     });
 
     // ask server to reattach any existing queue state (based on nickname)
@@ -241,6 +247,8 @@ export default function Page() {
     if (!sck) return;
     setMatchState("searching");
     setChannel("");
+    setIsLeader(false);
+    setChannelReady(false);
     sck.emit("queue:join", {
       huntingGroundId: selectedId,
       nickname,
@@ -257,7 +265,17 @@ export default function Page() {
     sck.emit("queue:leave");
     setMatchState("idle");
     setChannel("");
+    setIsLeader(false);
+    setChannelReady(false);
   };
+
+  function setChannelByLeader() {
+    const sck = socketRef.current;
+    if (!sck) return;
+    if (!isLeader) return;
+    if (matchState !== "matched") return;
+    sck.emit("queue:setChannel", { letter: channelLetter, number: channelNum });
+  }
 
   function onSelectGround(id: string) {
     setSelectedId(id);
@@ -629,7 +647,68 @@ export default function Page() {
             {matchState === "matched" && (
               <div style={{ display: "grid", gap: 6 }}>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>매칭완료!</div>
-                <div style={{ fontWeight: 800 }}>채널은 {channel} 입니다.</div>
+                {channelReady ? (
+                  <div style={{ fontWeight: 800 }}>채널은 {channel} 입니다.</div>
+                ) : isLeader ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div style={{ fontWeight: 800 }}>채널 설정</div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <select
+                        value={channelLetter}
+                        onChange={(e) => setChannelLetter(e.target.value)}
+                        style={{
+                          padding: "10px 10px",
+                          borderRadius: 12,
+                          border: "1px solid rgba(255,255,255,0.16)",
+                          background: "rgba(0,0,0,0.28)",
+                          color: "#e6e8ee",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i)).map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={channelNum}
+                        onChange={(e) => setChannelNum(e.target.value)}
+                        style={{
+                          padding: "10px 10px",
+                          borderRadius: 12,
+                          border: "1px solid rgba(255,255,255,0.16)",
+                          background: "rgba(0,0,0,0.28)",
+                          color: "#e6e8ee",
+                          fontWeight: 900,
+                        }}
+                      >
+                        {Array.from({ length: 999 }, (_, i) => String(i + 1).padStart(3, "0")).map((n) => (
+                          <option key={n} value={n}>
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={setChannelByLeader}
+                        style={{
+                          border: "1px solid rgba(255,255,255,0.14)",
+                          background: "rgba(255,220,120,0.14)",
+                          color: "#e6e8ee",
+                          padding: "10px 12px",
+                          borderRadius: 12,
+                          cursor: "pointer",
+                          fontWeight: 900,
+                        }}
+                      >
+                        채널 확정
+                      </button>
+                    </div>
+                    <div style={{ ...muted }}>파티장은 게임 내 채널을 선택해 주세요.</div>
+                  </div>
+                ) : (
+                  <div style={{ ...muted, fontWeight: 700 }}>파티장이 채널을 설정중입니다…</div>
+                )}
               </div>
             )}
 

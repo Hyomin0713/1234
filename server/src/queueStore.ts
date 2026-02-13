@@ -14,9 +14,15 @@ export type QueueEntry = QueueProfile & {
   socketId: string;
   huntingGroundId: string;
   state: "idle" | "searching" | "matched";
+  matchId?: string;
+  leaderId?: string;
   channel?: string;
   updatedAt: number;
 };
+
+function randMatchId() {
+  return `m_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+}
 
 function randChannel() {
   const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); // A-Z
@@ -103,6 +109,8 @@ export class QueueStore {
     const cur = this.byUserId.get(uid);
     if (!cur) return { ok: false as const };
     cur.state = "idle";
+    cur.matchId = undefined;
+    cur.leaderId = undefined;
     cur.channel = undefined;
     cur.updatedAt = Date.now();
     this.byUserId.set(uid, cur);
@@ -129,19 +137,49 @@ export class QueueStore {
         if (a.userId === b.userId) continue;
         if (hasMutualBlock(a, b, resolveNameToId)) continue;
 
-        const ch = randChannel();
+        // Leader sets the channel after matching.
+        const matchId = randMatchId();
+        const leaderId = a.userId;
         a.state = "matched";
         b.state = "matched";
-        a.channel = ch;
-        b.channel = ch;
+        a.matchId = matchId;
+        b.matchId = matchId;
+        a.leaderId = leaderId;
+        b.leaderId = leaderId;
+        a.channel = undefined;
+        b.channel = undefined;
         a.updatedAt = Date.now();
         b.updatedAt = Date.now();
         this.byUserId.set(a.userId, a);
         this.byUserId.set(b.userId, b);
-        return { ok: true as const, a, b, channel: ch };
+        return { ok: true as const, a, b, matchId, leaderId };
       }
     }
     return { ok: false as const };
+  }
+
+  setChannelByLeader(leaderId: string, channel: string) {
+    const lid = normStr(leaderId, 64);
+    const leader = this.byUserId.get(lid);
+    if (!leader || leader.state !== "matched") return { ok: false as const, error: "not_matched" };
+    if (leader.leaderId !== lid) return { ok: false as const, error: "not_leader" };
+    const matchId = leader.matchId;
+    if (!matchId) return { ok: false as const, error: "no_match" };
+
+    const ch = normStr(channel, 16);
+    if (!/^[A-Z]-\d{3}$/.test(ch)) return { ok: false as const, error: "bad_channel" };
+
+    const members: QueueEntry[] = [];
+    for (const e of this.byUserId.values()) {
+      if (e.matchId === matchId && e.state === "matched") members.push(e);
+    }
+    if (members.length < 2) return { ok: false as const, error: "missing_pair" };
+    for (const e of members) {
+      e.channel = ch;
+      e.updatedAt = Date.now();
+      this.byUserId.set(e.userId, e);
+    }
+    return { ok: true as const, matchId, channel: ch, members };
   }
 }
 

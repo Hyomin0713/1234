@@ -474,16 +474,34 @@ io.on("connection", (socket) => {
     return u;
   }
 
+  function emitQueueStatus(uid: string, socketId?: string) {
+    const cur = QUEUE.get(uid);
+    const emitter = socketId ? io.to(socketId) : socket;
+
+    if (!cur || cur.state === "idle") {
+      (emitter as any).emit("queue:status", { state: "idle" });
+      return;
+    }
+    if (cur.state === "searching") {
+      (emitter as any).emit("queue:status", { state: "searching" });
+      return;
+    }
+    const isLeader = !!cur.leaderId && cur.leaderId === uid;
+    (emitter as any).emit("queue:status", {
+      state: "matched",
+      channel: cur.channel ?? "",
+      isLeader,
+      channelReady: !!cur.channel,
+    });
+  }
+
   socket.on("queue:hello", async (_p: any) => {
     const u = ensureLoggedIn();
     if (!u) return;
 
     socketToUserId.set(socket.id, u.id);
     
-    const cur = QUEUE.get(u.id);
-    if (cur?.state === "matched") socket.emit("queue:status", { state: "matched", channel: cur.channel });
-    else if (cur?.state === "searching") socket.emit("queue:status", { state: "searching" });
-    else socket.emit("queue:status", { state: "idle" });
+    emitQueueStatus(u.id);
   });
 
   socket.on("queue:updateProfile", (p: any) => {
@@ -523,8 +541,26 @@ io.on("connection", (socket) => {
 
     const matched = QUEUE.tryMatch(huntingGroundId, resolveNameToId);
     if (matched.ok) {
-      io.to(matched.a.socketId).emit("queue:status", { state: "matched", channel: matched.channel });
-      io.to(matched.b.socketId).emit("queue:status", { state: "matched", channel: matched.channel });
+      emitQueueStatus(matched.a.userId, matched.a.socketId);
+      emitQueueStatus(matched.b.userId, matched.b.socketId);
+    }
+  });
+
+  socket.on("queue:setChannel", (p: any) => {
+    const u = ensureLoggedIn();
+    if (!u) return;
+
+    const letter = String(p?.letter ?? "").toUpperCase().trim();
+    const num = String(p?.num ?? "").trim().padStart(3, "0");
+    const channel = `${letter}-${num}`;
+    const r = QUEUE.setChannelByLeader(u.id, channel);
+    if (!r.ok) {
+      socket.emit("queue:toast", { type: "error", message: "채널 설정 실패" });
+      emitQueueStatus(u.id);
+      return;
+    }
+    for (const m of r.members) {
+      emitQueueStatus(m.userId, m.socketId);
     }
   });
 
