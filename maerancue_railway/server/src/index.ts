@@ -243,12 +243,13 @@ app.post("/api/party", (req, res) => {
   if (!auth) return;
   try {
     const body = createPartySchema.parse(req.body);
-    const party = STORE.createParty({
-      title: body.title,
-      ownerId: auth.user.id,
-      ownerName: auth.user.global_name ?? auth.user.username,
-      lockPassword: body.lockPassword ?? null
-    });
+    const party = STORE.createParty(
+      { userId: auth.user.id, name: auth.user.global_name ?? auth.user.username },
+      body.title
+    );
+    if (body.lockPassword) {
+      STORE.setLock(party.id, true, body.lockPassword);
+    }
     broadcastParties();
     res.json({ party });
   } catch {
@@ -261,12 +262,14 @@ app.post("/api/party/join", (req, res) => {
   if (!auth) return;
   try {
     const body = joinPartySchema.parse(req.body);
-    const party = STORE.joinParty({
-      partyId: body.partyId,
-      userId: auth.user.id,
-      name: auth.user.global_name ?? auth.user.username,
-      lockPassword: body.lockPassword ?? null
-    });
+    const can = STORE.canJoin(body.partyId, body.lockPassword ?? undefined);
+    if (!can.ok) throw new Error(can.reason);
+    const party = STORE.ensureMember(
+      body.partyId,
+      auth.user.id,
+      auth.user.global_name ?? auth.user.username
+    );
+    if (!party) throw new Error("NOT_FOUND");
     broadcastParty(body.partyId);
     res.json({ party });
   } catch (e: any) {
@@ -279,7 +282,12 @@ app.post("/api/party/rejoin", (req, res) => {
   if (!auth) return;
   try {
     const body = rejoinSchema.parse(req.body);
-    const party = STORE.rejoin({ partyId: body.partyId, userId: auth.user.id });
+    const party = STORE.ensureMember(
+      body.partyId,
+      auth.user.id,
+      auth.user.global_name ?? auth.user.username
+    );
+    if (!party) return res.status(404).json({ error: "NOT_FOUND" });
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -292,7 +300,7 @@ app.post("/api/party/leave", (req, res) => {
   if (!auth) return;
   const partyId = String(req.body?.partyId ?? "");
   if (!partyId) return res.status(400).json({ error: "MISSING_PARTY_ID" });
-  STORE.leaveParty({ partyId, userId: auth.user.id });
+  STORE.removeMember(partyId, auth.user.id);
   broadcastParty(partyId);
   res.json({ ok: true });
 });
@@ -302,7 +310,10 @@ app.post("/api/party/title", (req, res) => {
   if (!auth) return;
   try {
     const body = updateTitleSchema.parse(req.body);
-    const party = STORE.updateTitle({ partyId: body.partyId, userId: auth.user.id, title: body.title });
+    const cur = STORE.getParty(body.partyId);
+    if (!cur) return res.status(404).json({ error: "NOT_FOUND" });
+    if (cur.ownerId !== auth.user.id) return res.status(403).json({ error: "FORBIDDEN" });
+    const party = STORE.updateTitle(body.partyId, body.title);
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -315,7 +326,12 @@ app.post("/api/party/member", (req, res) => {
   if (!auth) return;
   try {
     const body = updateMemberSchema.parse(req.body);
-    const party = STORE.updateMemberName({ partyId: body.partyId, userId: auth.user.id, name: body.name });
+    const cur = STORE.getParty(body.partyId);
+    if (!cur) return res.status(404).json({ error: "NOT_FOUND" });
+    const isOwner = cur.ownerId === auth.user.id;
+    const isSelf = body.memberId === auth.user.id;
+    if (!isOwner && !isSelf) return res.status(403).json({ error: "FORBIDDEN" });
+    const party = STORE.updateMemberName(body.partyId, body.memberId, body.displayName);
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -328,7 +344,7 @@ app.post("/api/party/buffs", (req, res) => {
   if (!auth) return;
   try {
     const body = buffsSchema.parse(req.body);
-    const party = STORE.updateBuffs({ partyId: body.partyId, userId: auth.user.id, buffs: body.buffs });
+    const party = STORE.setBuffs(body.partyId, auth.user.id, body.buffs);
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -341,7 +357,10 @@ app.post("/api/party/lock", (req, res) => {
   if (!auth) return;
   try {
     const body = lockSchema.parse(req.body);
-    const party = STORE.setLock({ partyId: body.partyId, userId: auth.user.id, lockPassword: body.lockPassword });
+    const cur = STORE.getParty(body.partyId);
+    if (!cur) return res.status(404).json({ error: "NOT_FOUND" });
+    if (cur.ownerId !== auth.user.id) return res.status(403).json({ error: "FORBIDDEN" });
+    const party = STORE.setLock(body.partyId, body.isLocked, body.lockPassword);
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -354,7 +373,10 @@ app.post("/api/party/kick", (req, res) => {
   if (!auth) return;
   try {
     const body = kickSchema.parse(req.body);
-    const party = STORE.kick({ partyId: body.partyId, userId: auth.user.id, targetUserId: body.targetUserId });
+    const cur = STORE.getParty(body.partyId);
+    if (!cur) return res.status(404).json({ error: "NOT_FOUND" });
+    if (cur.ownerId !== auth.user.id) return res.status(403).json({ error: "FORBIDDEN" });
+    const party = STORE.removeMember(body.partyId, body.userId);
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -367,7 +389,10 @@ app.post("/api/party/transfer", (req, res) => {
   if (!auth) return;
   try {
     const body = transferOwnerSchema.parse(req.body);
-    const party = STORE.transferOwner({ partyId: body.partyId, userId: auth.user.id, targetUserId: body.targetUserId });
+    const cur = STORE.getParty(body.partyId);
+    if (!cur) return res.status(404).json({ error: "NOT_FOUND" });
+    if (cur.ownerId !== auth.user.id) return res.status(403).json({ error: "FORBIDDEN" });
+    const party = STORE.transferOwner(body.partyId, body.newOwnerId);
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
