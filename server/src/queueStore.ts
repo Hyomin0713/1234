@@ -1,13 +1,5 @@
 export type Job = "전사" | "도적" | "궁수" | "마법사";
 
-function makeGameChannel() {
-  const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); // A-Z
-  const num = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0"); // 001-999
-  return `${letter}-${num}`;
-}
-
-
-
 export type QueueProfile = {
   userId: string;
   displayName: string;
@@ -27,8 +19,9 @@ export type QueueEntry = QueueProfile & {
 };
 
 function randChannel() {
-  const n = Math.floor(Math.random() * 900) + 100; // 100-999
-  return `x-${n}`;
+  const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); // A-Z
+  const num = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0"); // 001-999
+  return `${letter}-${num}`;
 }
 
 function normStr(s: any, max = 64) {

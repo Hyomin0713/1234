@@ -33,7 +33,6 @@ import { STORE } from "./store.js";
 import { PROFILES } from "./profileStore.js";
 import { QUEUE } from "./queueStore.js";
 import { USERS } from "./userStore.js";
-import { PARTY } from "./partyStore.js";
 import {
   createPartySchema,
   joinPartySchema,
@@ -237,20 +236,6 @@ app.get("/api/queue/status", requireAuth, (req, res) => {
   return res.json({ ok: true, status: { state: cur.state, channel: cur.channel, huntingGroundId: cur.huntingGroundId } });
 });
 
-
-
-// --- party APIs ---
-app.get("/api/party", requireAuth, (req, res) => {
-  const u = (req as any).user as DiscordUser;
-  const p = PARTY.getPartyOfUser(u.id);
-  return res.json({ ok: true, party: p });
-});
-
-app.post("/api/party/leave", requireAuth, (req, res) => {
-  const u = (req as any).user as DiscordUser;
-  const p = PARTY.leave(u.id);
-  return res.json({ ok: true, party: p });
-});
 
 app.get("/api/me", (req, res) => {
   const auth = requireAuth(req, res);
@@ -495,67 +480,12 @@ io.on("connection", (socket) => {
 
     const matched = QUEUE.tryMatch(huntingGroundId, resolveNameToId);
     if (matched.ok) {
-      const party = PARTY.createForMatchedPair(
-        { userId: matched.a.userId, displayName: matched.a.displayName },
-        { userId: matched.b.userId, displayName: matched.b.displayName },
-        { channel: matched.channel }
-      );
-
-      io.to(matched.a.socketId).emit("queue:status", { state: "matched", channel: matched.channel, partyId: party.partyId });
-      io.to(matched.b.socketId).emit("queue:status", { state: "matched", channel: matched.channel, partyId: party.partyId });
-
-      io.to(matched.a.socketId).emit("party:state", { party });
-      io.to(matched.b.socketId).emit("party:state", { party });
+      io.to(matched.a.socketId).emit("queue:status", { state: "matched", channel: matched.channel });
+      io.to(matched.b.socketId).emit("queue:status", { state: "matched", channel: matched.channel });
     }
   });
 
-  
-  // --- party realtime ---
-  socket.on("party:hello", () => {
-    const u = requireSocketUser(socket);
-    if (!u) return;
-    const p = PARTY.getPartyOfUser(u.id);
-    socket.emit("party:state", { party: p });
-  });
-
-  socket.on("party:updateBuffs", (b: any) => {
-    const u = requireSocketUser(socket);
-    if (!u) return;
-    const p = PARTY.updateBuffs(u.id, { simb: b?.simb, bbeong: b?.bbeong, sharp: b?.sharp });
-    if (!p) return;
-
-    // broadcast to members' sockets if known (best-effort)
-    for (const m of p.members) {
-      const q = QUEUE.get(m.userId);
-      if (q?.socketId) io.to(q.socketId).emit("party:state", { party: p });
-    }
-    socket.emit("party:state", { party: p });
-  });
-
-  socket.on("party:setChannel", (p: any) => {
-    const u = requireSocketUser(socket);
-    if (!u) return;
-    const next = PARTY.setChannel(u.id, p?.channel);
-    if (!next) return;
-
-    for (const m of next.members) {
-      const q = QUEUE.get(m.userId);
-      if (q?.socketId) {
-        io.to(q.socketId).emit("party:state", { party: next });
-        io.to(q.socketId).emit("queue:status", { state: "matched", channel: next.channel, partyId: next.partyId });
-      }
-    }
-    socket.emit("party:state", { party: next });
-  });
-
-  socket.on("party:leave", () => {
-    const u = requireSocketUser(socket);
-    if (!u) return;
-    const p = PARTY.leave(u.id);
-    socket.emit("party:state", { party: p });
-  });
-
-socket.on("queue:leave", () => {
+  socket.on("queue:leave", () => {
     const u = requireSocketUser(socket);
     const uid = u?.id ?? socketToUserId.get(socket.id);
     if (uid) {
