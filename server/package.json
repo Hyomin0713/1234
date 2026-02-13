@@ -1,23 +1,28 @@
 {
   "name": "maerancue-server",
   "private": true,
-  "type": "module",
+  "version": "0.0.0",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "dev": "node --watch --loader ts-node/esm src/index.ts"
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts"
   },
   "dependencies": {
-    "@types/node": "^22.10.2",
+    "cookie": "^0.6.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "socket.io": "^4.7.5",
-    "typescript": "^5.6.3"
+    "express-session": "^1.17.3",
+    "passport": "^0.7.0",
+    "passport-discord": "^0.1.4",
+    "socket.io": "^4.7.5"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
-    "ts-node": "^10.9.2"
+    "@types/express-session": "^1.17.10",
+    "@types/node": "^20.11.30",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
   }
 }
