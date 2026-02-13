@@ -86,6 +86,11 @@ export default function Page() {
   // 1) 디스코드 로그인 (현재는 UI만 / 추후 /auth/discord 연결)
   const [me, setMe] = useState<MeResponse | null>(null);
   const isLoggedIn = !!me?.user?.id;
+
+  // Discord profile display helpers (safe for build + unauth states)
+  const discordName = (me?.user?.global_name ?? me?.user?.username ?? "User").trim() || "User";
+  // Discord 'tag' is effectively the username in new Discord. Keep as a secondary line.
+  const discordTag = (me?.user?.username ?? "unknown").trim() || "unknown";
   const [nickname, setNickname] = useState("");
   useEffect(() => {
     const n = (me?.profile?.displayName ?? me?.user?.global_name ?? me?.user?.username ?? "").trim();
