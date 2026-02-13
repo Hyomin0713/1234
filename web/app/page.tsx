@@ -5,7 +5,7 @@ import { io, type Socket } from "socket.io-client";
 
 type Job = "전사" | "도적" | "궁수" | "마법사";
 type MatchState = "idle" | "searching" | "matched";
-type QueueStatusPayload = { state: MatchState; channel?: string; message?: string; isLeader?: boolean; channelReady?: boolean };
+type QueueStatusPayload = { state: MatchState; channel?: string; message?: string; isLeader?: boolean; channelReady?: boolean; partyId?: string };
 type MeResponse = { user: { id: string; username: string; global_name: string | null; avatar: string | null }; profile?: { displayName: string } | null };
 
 
@@ -151,6 +151,7 @@ export default function Page() {
   const [channel, setChannel] = useState<string>("");
   const [isLeader, setIsLeader] = useState(false);
   const [channelReady, setChannelReady] = useState(false);
+  const [partyId, setPartyId] = useState<string>("");
   const [channelLetter, setChannelLetter] = useState("A");
   const [channelNum, setChannelNum] = useState("001");
 
@@ -216,6 +217,7 @@ export default function Page() {
       setChannel(p.channel ?? "");
       setIsLeader(!!p.isLeader);
       setChannelReady(!!p.channelReady);
+      setPartyId(p.partyId ?? "");
     });
 
     // ask server to reattach any existing queue state (based on nickname)
@@ -647,6 +649,32 @@ export default function Page() {
             {matchState === "matched" && (
               <div style={{ display: "grid", gap: 6 }}>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>매칭완료!</div>
+                {partyId ? (
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ ...chip, background: "rgba(83, 242, 170, 0.12)", borderColor: "rgba(83, 242, 170, 0.35)" }}>
+                      방 코드
+                    </div>
+                    <div style={{ fontWeight: 900, letterSpacing: 0.6 }}>{partyId}</div>
+                    <button
+                      onClick={() => {
+                        try {
+                          navigator.clipboard.writeText(partyId);
+                        } catch {}
+                      }}
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.14)",
+                        background: "rgba(255,255,255,0.08)",
+                        color: "#e6e8ee",
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                      }}
+                    >
+                      복사
+                    </button>
+                  </div>
+                ) : null}
                 {channelReady ? (
                   <div style={{ fontWeight: 800 }}>채널은 {channel} 입니다.</div>
                 ) : isLeader ? (

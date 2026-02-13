@@ -17,6 +17,7 @@ export type QueueEntry = QueueProfile & {
   matchId?: string;
   leaderId?: string;
   channel?: string;
+  partyId?: string;
   updatedAt: number;
 };
 
@@ -98,6 +99,7 @@ export class QueueStore {
       socketId: normStr(socketId, 128),
       huntingGroundId: hg,
       state: "searching",
+      partyId: undefined,
       updatedAt: Date.now()
     };
     this.byUserId.set(userId, next);
@@ -112,9 +114,25 @@ export class QueueStore {
     cur.matchId = undefined;
     cur.leaderId = undefined;
     cur.channel = undefined;
+    cur.partyId = undefined;
     cur.updatedAt = Date.now();
     this.byUserId.set(uid, cur);
     return { ok: true as const, entry: cur };
+  }
+
+  setPartyForMatch(matchId: string, partyId: string) {
+    const mid = normStr(matchId, 128);
+    const pid = normStr(partyId, 64);
+    const members: QueueEntry[] = [];
+    for (const e of this.byUserId.values()) {
+      if (e.matchId === mid && e.state === "matched") {
+        e.partyId = pid;
+        e.updatedAt = Date.now();
+        this.byUserId.set(e.userId, e);
+        members.push(e);
+      }
+    }
+    return members;
   }
 
   listByGround(huntingGroundId: string) {

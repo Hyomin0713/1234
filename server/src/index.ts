@@ -492,6 +492,7 @@ io.on("connection", (socket) => {
       channel: cur.channel ?? "",
       isLeader,
       channelReady: !!cur.channel,
+      partyId: cur.partyId ?? "",
     });
   }
 
@@ -541,6 +542,35 @@ io.on("connection", (socket) => {
 
     const matched = QUEUE.tryMatch(huntingGroundId, resolveNameToId);
     if (matched.ok) {
+      // Auto-create party for the matched pair (single-domain cookie session; party lives in memory)
+      try {
+        const leaderId = matched.leaderId;
+        const leaderEntry = matched.a.userId === leaderId ? matched.a : matched.b;
+        const otherEntry = leaderEntry === matched.a ? matched.b : matched.a;
+
+        const partyId = STORE.createParty({
+          ownerId: leaderId,
+          ownerName: leaderEntry.displayName,
+          title: `사냥터 ${huntingGroundId}`,
+          huntingGroundId,
+          locked: false,
+          password: undefined,
+        });
+        STORE.joinParty({ partyId, userId: otherEntry.userId, name: otherEntry.displayName });
+
+        // remember party id for both queue entries
+        QUEUE.setPartyForMatch(matched.matchId, partyId);
+
+        // join socket rooms for realtime party updates
+        const sa = io.sockets.sockets.get(matched.a.socketId);
+        const sb = io.sockets.sockets.get(matched.b.socketId);
+        sa?.join(partyId);
+        sb?.join(partyId);
+        broadcastParty(partyId);
+      } catch (e) {
+        console.error("[queue] failed to auto-create party", e);
+      }
+
       emitQueueStatus(matched.a.userId, matched.a.socketId);
       emitQueueStatus(matched.b.userId, matched.b.socketId);
     }
