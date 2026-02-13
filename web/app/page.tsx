@@ -103,6 +103,7 @@ export default function Page() {
   // 매칭 상태
   const [matchState, setMatchState] = useState<MatchState>("idle");
   const [channel, setChannel] = useState<string>("");
+  const [channelInput, setChannelInput] = useState<string>("A-001");
 
   const socketRef = useRef<Socket | null>(null);
   const [sockConnected, setSockConnected] = useState(false);
@@ -154,6 +155,7 @@ export default function Page() {
       if (!p) return;
       setMatchState(p.state);
       setChannel(p.channel ?? "");
+      if (p.channel) setChannelInput(p.channel);
     });
 
     // ask server to reattach any existing queue state (based on nickname)
@@ -281,10 +283,8 @@ export default function Page() {
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: "-0.01em" }}>파티 정보</div>
                   {party?.partyId ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, opacity: 0.88 }}>
-                      <div>코드: <span style={{ fontWeight: 900 }}>{party.partyId}</span></div>
-                      <div style={{ width: 1, height: 12, background: "rgba(255,255,255,0.12)" }} />
-                      <div>채널: <span style={{ fontWeight: 900 }}>{party.channel}</span></div>
+                    <div style={{ fontSize: 12, opacity: 0.8 }}>
+                      코드: <span style={{ fontWeight: 900 }}>{party.partyId}</span>
                     </div>
                   ) : (
                     <div style={{ fontSize: 12, opacity: 0.65 }}>매칭 후 자동 생성</div>
@@ -305,36 +305,6 @@ export default function Page() {
                           </div>
                         ))}
                       </div>
-                    </div>
-
-                    <div style={{ display: "grid", gap: 10 }}>
-                      <div style={{ fontSize: 12, opacity: 0.7 }}>채널 설정</div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <input
-                          value={channelInput}
-                          onChange={(e) => setChannelInput(e.target.value.toUpperCase())}
-                          placeholder="예: A-001"
-                          style={inputStyle}
-                        />
-                        <button
-                          onClick={() => socket?.emit("party:setChannel", { channel: channelInput })}
-                          style={{
-                            minHeight: 44,
-                            borderRadius: 12,
-                            padding: "0 14px",
-                            border: "1px solid rgba(255,255,255,0.14)",
-                            background: "rgba(255,255,255,0.08)",
-                            color: "rgba(255,255,255,0.92)",
-                            fontWeight: 900,
-                            whiteSpace: "nowrap",
-                            cursor: "pointer",
-                          }}
-                          title="방장만 변경 가능합니다"
-                        >
-                          적용
-                        </button>
-                      </div>
-                      <div style={{ fontSize: 12, opacity: 0.6 }}>형식: A~Z-001~999 (예: C-120)</div>
                     </div>
 
                     <div style={{ display: "grid", gap: 8 }}>
@@ -669,9 +639,48 @@ export default function Page() {
             )}
 
             {matchState === "matched" && (
-              <div style={{ display: "grid", gap: 6 }}>
-                <div style={{ fontWeight: 900, fontSize: 16 }}>매칭완료!</div>
-                <div style={{ fontWeight: 800 }}>채널은 {channel} 입니다.</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ fontWeight: 900, fontSize: 16 }}>매칭완료!</div>
+                  <div style={{ fontWeight: 800 }}>채널은 {channel} 입니다.</div>
+                </div>
+
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    value={channelInput}
+                    onChange={(e) => setChannelInput(e.target.value.toUpperCase())}
+                    placeholder="예: A-001"
+                    style={{
+                      flex: 1,
+                      minHeight: 44,
+                      borderRadius: 12,
+                      padding: "0 12px",
+                      background: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.12)",
+                      color: "rgba(255,255,255,0.92)",
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={() => socketRef.current?.emit("party:setChannel", { channel: channelInput })}
+                    style={{
+                      minHeight: 44,
+                      borderRadius: 12,
+                      padding: "0 14px",
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,255,255,0.08)",
+                      color: "rgba(255,255,255,0.92)",
+                      fontWeight: 900,
+                      whiteSpace: "nowrap",
+                      cursor: "pointer",
+                    }}
+                    title="방장만 변경 가능합니다"
+                  >
+                    채널 적용
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 12, opacity: 0.65 }}>형식: A~Z-001~999 (예: C-120)</div>
               </div>
             )}
 
