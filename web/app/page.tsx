@@ -87,6 +87,43 @@ export default function Page() {
   const [me, setMe] = useState<MeResponse | null>(null);
   const isLoggedIn = !!me?.user?.id;
 
+  // Fetch login state right after OAuth redirect (and on hard refresh)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        // OAuth fallback: server may redirect to /#sid=... to recover session
+        // if the browser didn't persist Set-Cookie. Hash is client-only.
+        const sid = typeof window !== "undefined" && window.location.hash.startsWith("#sid=")
+          ? window.location.hash.slice("#sid=".length)
+          : "";
+
+        const res = await fetch("/api/me", {
+          credentials: "include",
+          headers: sid ? { "x-ml-session": decodeURIComponent(sid) } : undefined,
+        });
+        if (!alive) return;
+        if (!res.ok) {
+          setMe(null);
+          return;
+        }
+        const data = (await res.json()) as MeResponse;
+        setMe(data);
+
+        // Clean the hash so it doesn't stick around.
+        if (sid && typeof window !== "undefined") {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+        }
+      } catch {
+        // Network errors shouldn't crash the page.
+        setMe(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // Discord profile display helpers (safe for build + unauth states)
   const discordName = (me?.user?.global_name ?? me?.user?.username ?? "User").trim() || "User";
   // Discord 'tag' is effectively the username in new Discord. Keep as a secondary line.

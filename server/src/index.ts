@@ -121,15 +121,38 @@ function broadcastParty(partyId: string) {
   broadcastParties();
 }
 
-function requireAuth(req: express.Request, res: express.Response): { user: DiscordUser } | null {
+function extractSessionId(req: express.Request): string | undefined {
   const cookies = parseCookies(req.headers.cookie);
-  const sid = cookies["ml_session"];
+  const fromCookie = cookies["ml_session"];
+  if (fromCookie) return fromCookie;
+  // Fallback for rare cases where the cookie isn't persisted after OAuth redirect.
+  // The client may send the session via a header extracted from URL hash.
+  const fromHeader = (req.headers["x-ml-session"] as string | undefined) ?? undefined;
+  if (fromHeader && typeof fromHeader === "string") return fromHeader;
+  return undefined;
+}
+
+function setSessionCookie(res: express.Response, sessionId: string) {
+  res.setHeader(
+    "Set-Cookie",
+    cookieSerialize("ml_session", sessionId, {
+      httpOnly: true,
+      secure: /^https:\/\//i.test(PUBLIC_URL),
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7
+    })
+  );
+}
+
+function requireAuth(req: express.Request, res: express.Response): { user: DiscordUser; sessionId: string } | null {
+  const sid = extractSessionId(req);
   const s = getSession(sid);
   if (!s) {
     res.status(401).json({ error: "UNAUTHORIZED" });
     return null;
   }
-  return { user: s.user };
+  return { user: s.user, sessionId: s.sessionId };
 }
 
 app.get("/health", (_req, res) => res.json({ ok: true, now: Date.now() }));
@@ -185,20 +208,13 @@ app.get("/auth/discord/callback", rateLimit({ windowMs: 60_000, max: 30 }), asyn
 
     const s = newSession(user);
 
-    const isHttps = /^https:\/\//i.test(PUBLIC_URL);
-    res.setHeader(
-      "Set-Cookie",
-      cookieSerialize("ml_session", s.sessionId, {
-        httpOnly: true,
-        secure: isHttps,
-        sameSite: "lax",
-        path: "/",
-        maxAge: 60 * 60 * 24 * 7
-      })
-    );
+    // Primary: persist cookie for same-domain deployment.
+    setSessionCookie(res, s.sessionId);
 
-    // ✅ redirect back to root (single-domain)
-    res.redirect("/");
+    // Fallback: also pass sid via URL hash so the client can recover even if
+    // the browser did not persist the cookie after the OAuth redirect.
+    // (hash is not sent as Referer / request path to servers)
+    res.redirect(`/#sid=${encodeURIComponent(s.sessionId)}`);
   } catch (e) {
     console.error(e);
     res.status(500).send("OAuth error");
@@ -208,15 +224,24 @@ app.get("/auth/discord/callback", rateLimit({ windowMs: 60_000, max: 30 }), asyn
 /** ---------------- Auth APIs ---------------- */
 
 // --- profile APIs ---
-app.get("/api/profile", requireAuth, (req, res) => {
-  const u = (req as any).user as DiscordUser;
+// NOTE: we intentionally avoid Express "middleware" style auth here.
+// This repo uses a cookie session helper (requireAuth) that returns the user,
+// so we call it inside each handler to keep types + control flow simple.
+app.get("/api/profile", (req, res) => {
+  const auth = requireAuth(req, res);
+  if (!auth) return;
+
+  const u = auth.user;
   const displayName = (u.global_name ?? u.username) || u.username;
   const saved = USERS.upsert(u.id, { displayName })!;
   return res.json({ ok: true, profile: saved });
 });
 
-app.put("/api/profile", requireAuth, express.json(), (req, res) => {
-  const u = (req as any).user as DiscordUser;
+app.put("/api/profile", express.json(), (req, res) => {
+  const auth = requireAuth(req, res);
+  if (!auth) return;
+
+  const u = auth.user;
   const displayName = (u.global_name ?? u.username) || u.username;
   const body = req.body ?? {};
   const next = USERS.upsert(u.id, {
@@ -229,9 +254,10 @@ app.put("/api/profile", requireAuth, express.json(), (req, res) => {
   return res.json({ ok: true, profile: next });
 });
 
-app.get("/api/queue/status", requireAuth, (req, res) => {
-  const u = (req as any).user as DiscordUser;
-  const cur = QUEUE.get(u.id);
+app.get("/api/queue/status", (req, res) => {
+  const auth = requireAuth(req, res);
+  if (!auth) return;
+  const cur = QUEUE.get(auth.user.id);
   if (!cur) return res.json({ ok: true, status: { state: "idle" } });
   return res.json({ ok: true, status: { state: cur.state, channel: cur.channel, huntingGroundId: cur.huntingGroundId } });
 });
@@ -240,7 +266,10 @@ app.get("/api/queue/status", requireAuth, (req, res) => {
 app.get("/api/me", (req, res) => {
   const auth = requireAuth(req, res);
   if (!auth) return;
-  res.json({ user: auth.user, profile: PROFILES.get(auth.user.id) });
+  // Refresh cookie (and recover if auth came from x-ml-session header).
+  setSessionCookie(res, auth.sessionId);
+  // return full in-memory profile used by queue/blacklist UI
+  res.json({ user: auth.user, profile: USERS.get(auth.user.id) ?? null });
 });
 
 app.post("/api/logout", (req, res) => {
