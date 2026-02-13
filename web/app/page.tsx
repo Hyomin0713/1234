@@ -1,8 +1,12 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { io, type Socket } from "socket.io-client";
 
 type Job = "전사" | "도적" | "궁수" | "마법사";
+type MatchState = "idle" | "searching" | "matched";
+type QueueStatusPayload = { state: MatchState; channel?: string; message?: string };
+
 
 type HuntingGround = {
   id: string;
@@ -62,10 +66,26 @@ function clampInt(v: string, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
+function safeLocalGet<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+function safeLocalSet(key: string, value: any) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {}
+}
+
 export default function Page() {
   // 1) 디스코드 로그인 (현재는 UI만 / 추후 /auth/discord 연결)
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [discordName, setDiscordName] = useState("효민");
+  const [nickname, setNickname] = useState("효민");
   const [discordTag, setDiscordTag] = useState("Hyomin0713");
 
   // 2) 사냥터 검색
@@ -81,8 +101,11 @@ export default function Page() {
   const [blacklist, setBlacklist] = useState<string[]>(["포켓몬성능"]);
 
   // 매칭 상태
-  const [matchState, setMatchState] = useState<"idle" | "searching" | "matched">("idle");
+  const [matchState, setMatchState] = useState<MatchState>("idle");
   const [channel, setChannel] = useState<string>("");
+
+  const socketRef = useRef<Socket | null>(null);
+  const [sockConnected, setSockConnected] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -97,6 +120,87 @@ export default function Page() {
     () => GROUNDS.find((g) => g.id === selectedId) ?? filtered[0] ?? GROUNDS[0],
     [selectedId, filtered]
   );
+
+
+  // --- persist & realtime queue (socket) ---
+  useEffect(() => {
+    // restore saved inputs
+    const saved = safeLocalGet("mlq.queueForm", null as any);
+    if (saved) {
+      if (typeof saved.level === "number") setLevel(saved.level);
+      if (typeof saved.job === "string") setJob(saved.job as Job);
+      if (typeof saved.power === "number") setPower(saved.power);
+      if (typeof saved.nickname === "string") setNickname(saved.nickname);
+      if (Array.isArray(saved.blacklist)) setBlacklist(saved.blacklist.filter((x: any) => typeof x === "string"));
+    }
+  }, []);
+
+  useEffect(() => {
+    safeLocalSet("mlq.queueForm", { level, job, power, nickname, blacklist });
+  }, [level, job, power, nickname, blacklist]);
+
+  useEffect(() => {
+    const sck = io({
+      withCredentials: true,
+      transports: ["websocket", "polling"],
+    });
+    socketRef.current = sck;
+
+    sck.on("connect", () => setSockConnected(true));
+    sck.on("disconnect", () => setSockConnected(false));
+
+    sck.on("queue:status", (p: QueueStatusPayload) => {
+      if (!p) return;
+      setMatchState(p.state);
+      setChannel(p.channel ?? "");
+    });
+
+    // ask server to reattach any existing queue state (based on nickname)
+    sck.emit("queue:hello", {
+      nickname,
+      level,
+      job,
+      power,
+      blacklist,
+    });
+
+    return () => {
+      sck.disconnect();
+      socketRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    // keep server updated when user edits
+    const sck = socketRef.current;
+    if (!sck) return;
+    if (!sockConnected) return;
+    sck.emit("queue:updateProfile", { nickname, level, job, power, blacklist });
+  }, [nickname, level, job, power, blacklist, sockConnected]);
+
+  const joinQueue = () => {
+    const sck = socketRef.current;
+    if (!sck) return;
+    setMatchState("searching");
+    setChannel("");
+    sck.emit("queue:join", {
+      huntingGroundId: selectedId,
+      nickname,
+      level,
+      job,
+      power,
+      blacklist,
+    });
+  };
+
+  const leaveQueue = () => {
+    const sck = socketRef.current;
+    if (!sck) return;
+    sck.emit("queue:leave");
+    setMatchState("idle");
+    setChannel("");
+  };
 
   function onSelectGround(id: string) {
     setSelectedId(id);
@@ -122,22 +226,10 @@ export default function Page() {
   function startMatching() {
     if (!selected) return;
 
-    // 로그인 강제(현재는 UI만)
-    if (!isLoggedIn) {
-      alert("디스코드 로그인이 필요합니다. (현재는 UI 데모)");
-      return;
-    }
-
-    setMatchState("searching");
-    setChannel("");
-
-    // 데모: 2.5초 후 매칭 완료
-    window.setTimeout(() => {
-      const ch = `x-${Math.floor(100 + Math.random() * 900)}`;
-      setChannel(ch);
-      setMatchState("matched");
-    }, 2500);
+    // 지금은 OAuth 연동 전이므로, 로그인 여부와 무관하게 큐 참여는 가능하게 둠
+    joinQueue();
   }
+
 
   const shell: React.CSSProperties = {
     minHeight: "100vh",
@@ -212,7 +304,7 @@ export default function Page() {
                 <div
                   style={{
                     width: 36,
-                    height: 36,
+                    minHeight: 44,
                     borderRadius: 12,
                     background: "rgba(255,255,255,0.10)",
                     display: "grid",
@@ -300,7 +392,8 @@ export default function Page() {
       <section style={{ ...card, gridColumn: "3", gridRow: "1", display: "flex", flexDirection: "column" }}>
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>큐 정보</div>
-          <div style={muted}>{matchState === "idle" ? "대기" : matchState === "searching" ? "매칭중" : "완료"}</div>
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>레벨/직업 입력은 매칭 조건에 반영됩니다.</div>
+          <div style={muted}>{matchState === "idle" ? "대기" : matchState === "searching" ? "매칭중..." : `완료 (${channel || "채널 발급"})`}</div>
         </div>
 
         <div style={{ padding: 14, display: "grid", gap: 10 }}>
@@ -343,6 +436,24 @@ export default function Page() {
               </select>
             </label>
           </div>
+
+          <label style={{ display: "grid", gap: 6 }}>
+            <div style={muted}>닉네임</div>
+            <input
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="매칭/블랙리스트 기준 닉네임"
+              style={{
+                background: "rgba(0,0,0,0.25)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                borderRadius: 12,
+                padding: "10px 12px",
+                color: "#e6e8ee",
+                outline: "none",
+                minHeight: 44,
+              }}
+            />
+          </label>
 
           <label style={{ display: "grid", gap: 6 }}>
             <div style={muted}>스공</div>
@@ -417,7 +528,7 @@ export default function Page() {
                       padding: "6px 10px",
                       borderRadius: 999,
                       cursor: "pointer",
-                      fontSize: 12,
+                      fontSize: 13,
                     }}
                   >
                     {b} ✕
@@ -564,7 +675,7 @@ export default function Page() {
                     <span
                       key={t}
                       style={{
-                        fontSize: 12,
+                        fontSize: 13,
                         padding: "6px 10px",
                         borderRadius: 999,
                         background: "rgba(120,200,255,0.08)",
@@ -607,7 +718,7 @@ export default function Page() {
                   fontWeight: 900,
                 }}
               >
-                이 사냥터로 큐 참가 (데모)
+                이 사냥터로 큐 참가
               </button>
               <button
                 onClick={() => alert("추후: 사냥터 등록/수정 UI")}

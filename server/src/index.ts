@@ -381,8 +381,74 @@ io.on("connection", (socket) => {
     if (!partyId) return;
     socket.join(partyId);
   });
-});
 
+  // --- queue matchmaking ---
+  socket.on("queue:hello", (p: any) => {
+    const nick = String(p?.nickname ?? "").trim();
+    if (!nick) return;
+
+    QUEUE.upsert(socket.id, null, {
+      nickname: nick,
+      level: p?.level,
+      job: p?.job,
+      power: p?.power,
+      blacklist: p?.blacklist,
+    });
+
+    const cur = QUEUE.get(nick);
+    if (cur?.state === "matched") socket.emit("queue:status", { state: "matched", channel: cur.channel });
+    else if (cur?.state === "searching") socket.emit("queue:status", { state: "searching" });
+    else socket.emit("queue:status", { state: "idle" });
+  });
+
+  socket.on("queue:updateProfile", (p: any) => {
+    const nick = String(p?.nickname ?? "").trim();
+    if (!nick) return;
+
+    QUEUE.upsert(socket.id, null, {
+      nickname: nick,
+      level: p?.level,
+      job: p?.job,
+      power: p?.power,
+      blacklist: p?.blacklist,
+    });
+  });
+
+  socket.on("queue:join", (p: any) => {
+    const huntingGroundId = String(p?.huntingGroundId ?? "").trim();
+    const nickname = String(p?.nickname ?? "").trim();
+    if (!huntingGroundId || !nickname) return;
+
+    const entry = QUEUE.join(socket.id, huntingGroundId, {
+      nickname,
+      level: Number(p?.level ?? 1),
+      job: p?.job ?? "전사",
+      power: Number(p?.power ?? 0),
+      blacklist: Array.isArray(p?.blacklist) ? p.blacklist : [],
+    } as any);
+
+    if (!entry) return;
+
+    socket.emit("queue:status", { state: "searching" });
+
+    const matched = QUEUE.tryMatch(huntingGroundId);
+    if (matched) {
+      io.to(matched.a.socketId).emit("queue:status", { state: "matched", channel: matched.channel });
+      io.to(matched.b.socketId).emit("queue:status", { state: "matched", channel: matched.channel });
+    }
+  });
+
+  socket.on("queue:leave", (p: any) => {
+    const nick = String(p?.nickname ?? "").trim();
+    if (nick) QUEUE.leave(nick);
+    else QUEUE.removeBySocket(socket.id);
+    socket.emit("queue:status", { state: "idle" });
+  });
+
+  socket.on("disconnect", () => {
+    QUEUE.removeBySocket(socket.id);
+  });
+});
 // Serve static web build (Next export output)
 const webOut = path.resolve(process.cwd(), "../web/out");
 if (fs.existsSync(webOut)) {
