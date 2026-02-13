@@ -361,7 +361,16 @@ export default function Page() {
   function startMatching() {
     if (!selected) return;
 
+    // 중복 클릭 방지
+    if (matchState === "searching") return;
+
     // 지금은 OAuth 연동 전이므로, 로그인 여부와 무관하게 큐 참여는 가능하게 둠
+    joinQueue();
+  }
+
+  function rematch() {
+    // 한번 빠졌다가 재참가
+    leaveQueue();
     joinQueue();
   }
 
@@ -850,21 +859,84 @@ export default function Page() {
               </div>
             )}
 
-            <button
-              onClick={startMatching}
-              style={{
-                marginTop: 6,
-                border: "1px solid rgba(255,255,255,0.14)",
-                background: "rgba(120,200,255,0.14)",
-                color: "#e6e8ee",
-                padding: "12px 12px",
-                borderRadius: 12,
-                cursor: "pointer",
-                fontWeight: 900,
-              }}
-            >
-              큐 참가 (데모)
-            </button>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 6 }}>
+              {matchState === "idle" && (
+                <button
+                  onClick={startMatching}
+                  style={{
+                    flex: 1,
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    background: "rgba(120,200,255,0.14)",
+                    color: "#e6e8ee",
+                    padding: "12px 12px",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    fontWeight: 900,
+                  }}
+                >
+                  큐 참가
+                </button>
+              )}
+
+              {matchState === "searching" && (
+                <button
+                  onClick={leaveQueue}
+                  style={{
+                    flex: 1,
+                    border: "1px solid rgba(255,255,255,0.14)",
+                    background: "rgba(255,120,120,0.12)",
+                    color: "#e6e8ee",
+                    padding: "12px 12px",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    fontWeight: 900,
+                  }}
+                >
+                  큐 취소
+                </button>
+              )}
+
+              {matchState === "matched" && (
+                <>
+                  <button
+                    onClick={rematch}
+                    style={{
+                      flex: 1,
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(120,200,255,0.14)",
+                      color: "#e6e8ee",
+                      padding: "12px 12px",
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                    }}
+                  >
+                    다시 매칭
+                  </button>
+                  <button
+                    onClick={leaveQueue}
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.14)",
+                      background: "rgba(255,120,120,0.12)",
+                      color: "#e6e8ee",
+                      padding: "12px 12px",
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      fontWeight: 900,
+                      minWidth: 110,
+                    }}
+                  >
+                    나가기
+                  </button>
+                </>
+              )}
+            </div>
+
+            <div style={{ ...muted, marginTop: 8 }}>
+              {matchState === "idle" && "큐 참가하면 매칭이 시작됩니다."}
+              {matchState === "searching" && "찾는 중… 마음이 바뀌면 ‘큐 취소’ 가능."}
+              {matchState === "matched" && "채널 확인 후, 필요하면 ‘다시 매칭’도 가능."}
+            </div>
 
             <style>{`
               @keyframes pulse {
