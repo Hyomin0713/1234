@@ -344,6 +344,20 @@ export default function Page() {
 
   const muted: React.CSSProperties = { color: "rgba(230,232,238,0.7)", fontSize: 12 };
 
+  const chip: React.CSSProperties = {
+    fontSize: 12,
+    padding: "4px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "rgba(230,232,238,0.92)",
+    fontWeight: 800,
+    letterSpacing: 0.2,
+    display: "inline-flex",
+    alignItems: "center",
+    lineHeight: 1,
+  };
+
   return (
     <div style={shell}>
       {/* 1) 디스코드 */}
