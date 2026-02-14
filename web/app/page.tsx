@@ -425,6 +425,19 @@ export default function Page() {
     lineHeight: 1,
   };
 
+  const input: React.CSSProperties = {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,255,255,0.12)",
+    background: "rgba(0,0,0,0.22)",
+    color: "rgba(245,246,250,0.95)",
+    outline: "none",
+    fontSize: 13,
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
+  };
+
+
   return (
     <div style={shell}>
       {/* 1) 디스코드 */}
