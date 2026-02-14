@@ -1680,13 +1680,13 @@ export default function Page() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gridTemplateColumns: "1fr",
                 gap: 12,
                 marginTop: 12,
                 marginBottom: 12,
               }}
             >
-              <div style={{ ...formRow, gridColumn: "1 / -1" }}>
+              <div style={{ ...formRow }}>
                 <div style={label}>닉네임</div>
                 <input
                   style={input}
@@ -1717,7 +1717,7 @@ export default function Page() {
                 </select>
               </div>
 
-              <div style={{ ...formRow, gridColumn: "1 / -1" }}>
+              <div style={{ ...formRow }}>
                 <div style={label}>스공</div>
                 <input
                   style={input}
