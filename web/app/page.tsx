@@ -8,6 +8,12 @@ type MatchState = "idle" | "searching" | "matched";
 type QueueStatusPayload = { state: MatchState; channel?: string; message?: string; isLeader?: boolean; channelReady?: boolean; partyId?: string };
 type MeResponse = { user: { id: string; username: string; global_name: string | null; avatar: string | null }; profile?: { displayName: string } | null };
 
+type Toast = { type: "ok" | "err" | "info"; msg: string };
+
+// Single-domain deploy: keep API calls same-origin by default.
+// If you later split domains, set NEXT_PUBLIC_API_BASE and change this.
+const API = process.env.NEXT_PUBLIC_API_BASE ?? "";
+
 
 type HuntingGround = {
   id: string;
@@ -86,6 +92,14 @@ export default function Page() {
   // 1) 디스코드 로그인 (현재는 UI만 / 추후 /auth/discord 연결)
   const [me, setMe] = useState<MeResponse | null>(null);
   const isLoggedIn = !!me?.user?.id;
+
+  // Lightweight toast (used by party list join etc.)
+  const [toast, setToast] = useState<Toast | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2600);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Fetch login state right after OAuth redirect (and on hard refresh)
   useEffect(() => {
@@ -658,6 +672,43 @@ export default function Page() {
 
   return (
     <div style={shell}>
+      {toast ? (
+        <div
+          onClick={() => setToast(null)}
+          style={{
+            position: "fixed",
+            top: 14,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 100,
+            padding: "10px 12px",
+            borderRadius: 14,
+            maxWidth: "min(520px, calc(100vw - 28px))",
+            background:
+              toast.type === "ok"
+                ? "rgba(83, 242, 170, 0.14)"
+                : toast.type === "err"
+                ? "rgba(255, 120, 120, 0.14)"
+                : "rgba(255, 255, 255, 0.10)",
+            border:
+              toast.type === "ok"
+                ? "1px solid rgba(83, 242, 170, 0.35)"
+                : toast.type === "err"
+                ? "1px solid rgba(255, 120, 120, 0.35)"
+                : "1px solid rgba(255,255,255,0.16)",
+            color: "rgba(245,246,250,0.95)",
+            boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
+            cursor: "pointer",
+            userSelect: "none",
+            fontWeight: 800,
+            letterSpacing: 0.2,
+          }}
+          title="클릭하면 닫힘"
+        >
+          {toast.msg}
+        </div>
+      ) : null}
+
       {/* 1) 디스코드 */}
       <aside style={{ ...card, gridColumn: "1", gridRow: "1 / span 3", display: "flex", flexDirection: "column" }}>
         <div style={cardHeader}>
