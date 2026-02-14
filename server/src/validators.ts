@@ -8,12 +8,14 @@ function obj<T>(fn: (v: any) => T): Parser<T> {
   };
 }
 
-export const createPartySchema = obj<{ title: string; lockPassword?: string | null }>((v) => {
+export const createPartySchema = obj<{ title: string; lockPassword?: string | null; groundId?: string | null; groundName?: string | null }>((v) => {
   if (!v || typeof v !== "object") throw new Error("INVALID_BODY");
   const title = String(v.title ?? "").trim();
   if (!title) throw new Error("TITLE_REQUIRED");
   const lockPassword = v.lockPassword == null ? null : String(v.lockPassword);
-  return { title, lockPassword };
+  const groundId = v.groundId == null ? null : String(v.groundId).trim().slice(0, 64);
+  const groundName = v.groundName == null ? null : String(v.groundName).trim().slice(0, 64);
+  return { title, lockPassword, groundId, groundName };
 });
 
 export const joinPartySchema = obj<{ partyId: string; lockPassword?: string | null }>((v) => {
@@ -21,6 +23,8 @@ export const joinPartySchema = obj<{ partyId: string; lockPassword?: string | nu
   const partyId = String(v.partyId ?? "").trim();
   if (!partyId) throw new Error("PARTY_ID_REQUIRED");
   const lockPassword = v.lockPassword == null ? null : String(v.lockPassword);
+  const groundId = v.groundId == null ? null : String(v.groundId).trim().slice(0, 64);
+  const groundName = v.groundName == null ? null : String(v.groundName).trim().slice(0, 64);
   return { partyId, lockPassword };
 });
 

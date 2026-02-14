@@ -10,6 +10,8 @@ export type Party = {
   id: string;
   title: string;
   ownerId: string;
+  groundId: string | null;
+  groundName: string | null;
   isLocked: boolean;
   lockPasswordHash: string | null;
   members: PartyMember[];
@@ -47,7 +49,7 @@ function hash(pw: string) {
 class PartyStore {
   private parties = new Map<string, Party>();
 
-  createParty(args: { title: string; ownerId: string; ownerName: string; lockPassword?: string | null }) {
+  createParty(args: { title: string; ownerId: string; ownerName: string; lockPassword?: string | null; groundId?: string | null; groundName?: string | null }) {
     let id = randCode();
     while (this.parties.has(id)) id = randCode();
     const now = Date.now();
@@ -55,6 +57,8 @@ class PartyStore {
       id,
       title: args.title.trim() || "파티",
       ownerId: args.ownerId,
+      groundId: (args.groundId ?? null),
+      groundName: (args.groundName ?? null),
       isLocked: false,
       lockPasswordHash: null,
       members: [
@@ -76,6 +80,8 @@ class PartyStore {
       id: p.id,
       title: p.title,
       ownerId: p.ownerId,
+      groundId: p.groundId,
+      groundName: p.groundName,
       isLocked: p.isLocked,
       memberCount: p.members.length,
       updatedAt: p.updatedAt

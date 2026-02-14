@@ -206,6 +206,20 @@ export default function Page() {
 
   const [partyList, setPartyList] = useState<any[]>([]);
 
+  const normalizeKey = (s: any) => String(s ?? "").toLowerCase().replace(/\s+/g, "");
+
+  const partiesForSelected = useMemo(() => {
+    if (!selected?.name) return partyList;
+    // Prefer exact matching by groundId when server provides it; fallback to title includes for older parties.
+    return partyList.filter((p) => {
+      const pid = String(p?.groundId ?? "");
+      if (pid && pid === selectedId) return true;
+      const key = normalizeKey(selected.name);
+      if (!key) return true;
+      return normalizeKey(p?.title).includes(key);
+    });
+  }, [partyList, selected, selectedId]);
+
   const [dotTick, setDotTick] = useState(1);
   useEffect(() => {
     if (matchState !== "searching") {
@@ -499,7 +513,8 @@ export default function Page() {
 
   const createPartyManual = async () => {
     try {
-      const title = (createTitle || "파티").trim();
+      const autoTitle = selected?.name ? `${selected.name} 파티` : "파티";
+      const title = (createTitle || autoTitle).trim();
       const pw = createLocked ? createPassword.trim() : "";
       if (createLocked && pw.length < 2) {
         alert("비밀번호는 2글자 이상으로 설정해줘.");
@@ -513,7 +528,7 @@ export default function Page() {
           "Content-Type": "application/json",
           ...(sid ? { "x-ml-session": sid } : {}),
         },
-        body: JSON.stringify({ title, lockPassword: createLocked ? pw : undefined }),
+        body: JSON.stringify({ title, lockPassword: createLocked ? pw : undefined, groundId: selectedId || undefined, groundName: selected?.name || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -1453,49 +1468,7 @@ export default function Page() {
             })}
           </div>
         
-        <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "14px 0" }} />
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontWeight: 900, letterSpacing: 0.2 }}>공개 파티</div>
-          <button
-            onClick={refreshParties}
-            style={{ ...btnSm, background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.12)" }}
-            title="파티 목록 새로고침"
-          >
-            새로고침
-          </button>
-        </div>
-
-        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-          {partyList.length === 0 ? (
-            <div style={muted}>현재 공개된 파티가 없습니다.</div>
-          ) : (
-            partyList
-              .slice(0, 12)
-              .map((p: any) => (
-                <div key={p.id} style={{ ...listCard, borderColor: "rgba(255,255,255,0.12)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                    <div style={{ fontWeight: 850, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {p.title}
-                    </div>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-                      <div style={{ ...pill, background: p.locked ? "rgba(255, 214, 102, 0.14)" : "rgba(83, 242, 170, 0.12)", borderColor: p.locked ? "rgba(255, 214, 102, 0.35)" : "rgba(83, 242, 170, 0.35)" }}>
-                        {p.locked ? "잠금" : "공개"}
-                      </div>
-                      <div style={pill}>{p.memberCount}/6</div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginTop: 8 }}>
-                    <div style={muted}>방 코드: {String(p.id).slice(0, 8).toUpperCase()}</div>
-                    <button onClick={() => joinFromList(p)} style={btnSm}>
-                      참가
-                    </button>
-                  </div>
-                </div>
-              ))
-          )}
-        </div>
+        {/* 공개 파티는 중앙 상세 영역에 표시 (사냥터 선택 시 필터링) */}
 </section>
 
         {/* 4) 상세 */}
@@ -1536,6 +1509,63 @@ export default function Page() {
                       {t}
                     </span>
                   ))}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ ...card, background: "rgba(255,255,255,0.03)" }}>
+              <div style={{ padding: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ fontWeight: 900 }}>공개 파티</div>
+                  <button
+                    onClick={refreshParties}
+                    style={{ ...btnSm, background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.12)" }}
+                    title="파티 목록 새로고침"
+                  >
+                    새로고침
+                  </button>
+                </div>
+                <div style={{ ...muted, marginTop: 6 }}>
+                  {selected?.name ? (
+                    <>선택한 사냥터(<b>{selected.name}</b>)의 공개 파티만 표시합니다. (제목 기준 필터)</>
+                  ) : (
+                    <>사냥터를 선택하면 해당 사냥터의 공개 파티가 여기 표시됩니다.</>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 10, display: "grid", gap: 10, maxHeight: 240, overflow: "auto" }}>
+                  {(selected?.name ? partiesForSelected : partyList).length === 0 ? (
+                    <div style={muted}>현재 공개된 파티가 없습니다.</div>
+                  ) : (
+                    (selected?.name ? partiesForSelected : partyList)
+                      .slice(0, 12)
+                      .map((p: any) => (
+                        <div key={p.id} style={{ ...listCard, borderColor: "rgba(255,255,255,0.12)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                            <div style={{ fontWeight: 850, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                              <div
+                                style={{
+                                  ...pill,
+                                  background: p.isLocked ? "rgba(255, 214, 102, 0.14)" : "rgba(83, 242, 170, 0.12)",
+                                  borderColor: p.isLocked ? "rgba(255, 214, 102, 0.35)" : "rgba(83, 242, 170, 0.35)",
+                                }}
+                              >
+                                {p.isLocked ? "잠금" : "공개"}
+                              </div>
+                              <div style={pill}>{p.memberCount}/6</div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginTop: 8 }}>
+                            <div style={muted}>방 코드: {String(p.id).slice(0, 8).toUpperCase()}</div>
+                            <button onClick={() => joinFromList(p)} style={btnSm}>
+                              참가
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                  )}
                 </div>
               </div>
             </div>

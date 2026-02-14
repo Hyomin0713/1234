@@ -283,7 +283,9 @@ app.post("/api/party", (req, res) => {
             title: body.title,
             ownerId: auth.user.id,
             ownerName: auth.user.global_name ?? auth.user.username,
-            lockPassword: body.lockPassword ?? null
+            lockPassword: body.lockPassword ?? null,
+      groundId: body.groundId ?? null,
+      groundName: body.groundName ?? null
         });
         broadcastParties();
         res.json({ party });
@@ -302,7 +304,9 @@ app.post("/api/party/join", (req, res) => {
             partyId: body.partyId,
             userId: auth.user.id,
             name: auth.user.global_name ?? auth.user.username,
-            lockPassword: body.lockPassword ?? null
+            lockPassword: body.lockPassword ?? null,
+      groundId: body.groundId ?? null,
+      groundName: body.groundName ?? null
         });
         broadcastParty(body.partyId);
         res.json({ party });
