@@ -150,7 +150,7 @@ function setSessionCookie(res: express.Response, sessionId: string) {
     "Set-Cookie",
     cookieSerialize("ml_session", sessionId, {
       httpOnly: true,
-      secure: WEB_ORIGIN.startsWith("https://"),
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24 * 7
@@ -293,7 +293,7 @@ app.post("/api/logout", (req, res) => {
     "Set-Cookie",
     cookieSerialize("ml_session", "", {
       httpOnly: true,
-      secure: WEB_ORIGIN.startsWith("https://"),
+      secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
       maxAge: 0
