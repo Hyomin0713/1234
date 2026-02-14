@@ -156,6 +156,9 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(GROUNDS[0]?.id ?? "");
 
+  // Settings modal (profile)
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   // 사용자 커스텀 사냥터(로컬 저장) — 나중에 사용자가 직접 추가/수정 가능
   const [customGrounds, setCustomGrounds] = useState<HuntingGround[]>([]);
   const [groundEditorOpen, setGroundEditorOpen] = useState(false);
@@ -189,6 +192,22 @@ export default function Page() {
   const [job, setJob] = useState<Job>("전사");
   const [power, setPower] = useState(12000);
 
+  // Load saved profile (level/job/power/nickname)
+  useEffect(() => {
+    const saved = safeLocalGet("mlq.profile", null as any);
+    if (saved && typeof saved === "object") {
+      if (typeof saved.nickname === "string" && saved.nickname.trim()) setNickname(saved.nickname.trim());
+      if (typeof saved.level === "number") setLevel(clampInt(String(saved.level), 1, 300));
+      if (typeof saved.job === "string") setJob((saved.job as Job) ?? "전사");
+      if (typeof saved.power === "number") setPower(clampInt(String(saved.power), 0, 9_999_999));
+    }
+  }, []);
+
+  // Persist profile locally
+  useEffect(() => {
+    safeLocalSet("mlq.profile", { nickname, level, job, power });
+  }, [nickname, level, job, power]);
+
   const [blackInput, setBlackInput] = useState("");
   const [blacklist, setBlacklist] = useState<string[]>(["포켓몬성능"]);
 
@@ -216,6 +235,13 @@ export default function Page() {
   const [partyList, setPartyList] = useState<any[]>([]);
 
   const normalizeKey = (s: any) => String(s ?? "").toLowerCase().replace(/\s+/g, "");
+
+  const fmtNumber = (n: any) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "-";
+    return Math.max(0, Math.floor(v)).toLocaleString();
+  };
+
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -260,6 +286,24 @@ export default function Page() {
     if (typeof window === "undefined") return "";
     return window.location.hash.startsWith("#sid=") ? decodeURIComponent(window.location.hash.slice("#sid=".length)) : "";
   };
+
+  const emitProfile = (s: Socket | null) => {
+    if (!s) return;
+    if (!isLoggedIn) return;
+    s.emit("queue:updateProfile", {
+      displayName: nickname.trim() || discordName,
+      level,
+      job,
+      power,
+    });
+  };
+
+  // When login state becomes available, push latest profile to server (for party member snapshot)
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    emitProfile(socketRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn]);
   const [sockConnected, setSockConnected] = useState(false);
 
   const isCustomSelected = useMemo(() => selectedId.startsWith("c_"), [selectedId]);
@@ -336,7 +380,10 @@ export default function Page() {
     });
     socketRef.current = sck;
 
-    sck.on("connect", () => setSockConnected(true));
+    sck.on("connect", () => {
+      setSockConnected(true);
+      emitProfile(sck);
+    });
     sck.on("disconnect", () => setSockConnected(false));
 
     sck.on("queue:status", (p: QueueStatusPayload) => {
@@ -794,7 +841,7 @@ export default function Page() {
           } catch {}
           window.location.reload();
         }}
-        onOpenSettings={() => alert("추후: 프로필/설정")}
+        onOpenSettings={() => setSettingsOpen(true)}
         muted={muted}
         card={card}
         cardHeader={cardHeader}
@@ -1491,14 +1538,27 @@ export default function Page() {
                         <div style={{ textAlign: "center" }}>샾비</div>
                       </div>
 
-                      {(party.members ?? []).map((m: any) => {
+                      {[...(party.members ?? [])].sort((a: any, b: any) => (a.userId === party.ownerId ? -1 : b.userId === party.ownerId ? 1 : 0)).map((m: any) => {
                         const isMe = me && m.userId === me.user.id;
                         return (
                           <div key={m.memberId} style={{ display: "grid", gridTemplateColumns: "1.2fr 0.7fr 0.7fr 0.7fr", gap: 8, alignItems: "center", marginBottom: 8 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <div style={{ width: 10, height: 10, borderRadius: 999, background: isMe ? "rgba(83, 242, 170, 0.85)" : "rgba(255,255,255,0.25)" }} />
-                              <div style={{ fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.displayName}</div>
-                              {party.ownerId === m.userId ? <div style={{ ...chip, padding: "2px 8px", fontSize: 11, opacity: 0.9 }}>방장</div> : null}
+                              <div style={{ minWidth: 0, display: "grid", gap: 2 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                                  <div style={{ fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.displayName}</div>
+                                  {party.ownerId === m.userId ? (
+                                    <div style={{ ...chip, padding: "2px 8px", fontSize: 11, opacity: 0.95, display: "flex", alignItems: "center", gap: 4 }}>
+                                      <span>👑</span>
+                                      <span>방장</span>
+                                    </div>
+                                  ) : null}
+                                  {isMe ? <div style={{ ...chip, padding: "2px 8px", fontSize: 11, opacity: 0.8 }}>나</div> : null}
+                                </div>
+                                <div style={{ fontSize: 12, color: "rgba(230,232,238,0.72)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  Lv. {m.level ?? "-"} · {m.job ?? "-"} · 스공 {fmtNumber(m.power)}
+                                </div>
+                              </div>
                             </div>
 
                             {isMe ? (
@@ -1745,6 +1805,103 @@ export default function Page() {
                   저장
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Settings Modal: 레벨/직업/스공 설정 (로그아웃 옆 ⚙) */}
+      {settingsOpen ? (
+        <div
+          onClick={() => setSettingsOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.60)",
+            display: "grid",
+            placeItems: "center",
+            zIndex: 90,
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(520px, 96vw)",
+              borderRadius: 16,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(18,18,22,0.98)",
+              boxShadow: "0 24px 80px rgba(0,0,0,0.45)",
+              padding: 16,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontWeight: 900, fontSize: 16 }}>프로필 설정</div>
+              <div style={{ marginLeft: "auto", ...muted, fontSize: 12 }}>매칭/파티에 반영</div>
+            </div>
+
+            <div style={{ ...muted, marginTop: 6, fontSize: 12 }}>
+              레벨/직업/스공은 <b>큐 참가</b>와 <b>파티 멤버 정보</b>에 표시돼요.
+            </div>
+
+            <div style={formGrid}>
+              <div style={formRow}>
+                <div style={label}>닉네임</div>
+                <input
+                  style={input}
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder={discordName}
+                />
+              </div>
+
+              <div style={formRow}>
+                <div style={label}>레벨</div>
+                <input
+                  style={input}
+                  value={String(level)}
+                  inputMode="numeric"
+                  onChange={(e) => setLevel(clampInt(e.target.value, 1, 300))}
+                  placeholder="1~300"
+                />
+              </div>
+
+              <div style={formRow}>
+                <div style={label}>직업</div>
+                <select style={input} value={job} onChange={(e) => setJob(e.target.value as Job)}>
+                  <option value="전사">전사</option>
+                  <option value="도적">도적</option>
+                  <option value="궁수">궁수</option>
+                  <option value="마법사">마법사</option>
+                </select>
+              </div>
+
+              <div style={formRow}>
+                <div style={label}>스공</div>
+                <input
+                  style={input}
+                  value={String(power)}
+                  inputMode="numeric"
+                  onChange={(e) => setPower(clampInt(e.target.value, 0, 9_999_999))}
+                  placeholder="0~9,999,999"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 8 }}>
+              <button style={btn} onClick={() => setSettingsOpen(false)}>
+                닫기
+              </button>
+              <button
+                style={{ ...btnPrimary, padding: "10px 14px" }}
+                onClick={() => {
+                  emitProfile(socketRef.current);
+                  setToast({ type: "ok", msg: "프로필이 저장되었습니다." });
+                  setSettingsOpen(false);
+                }}
+              >
+                저장
+              </button>
             </div>
           </div>
         </div>

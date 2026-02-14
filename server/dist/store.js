@@ -41,7 +41,16 @@ class PartyStore {
             isLocked: false,
             lockPasswordHash: null,
             members: [
-                { userId: args.ownerId, name: args.ownerName, joinedAt: now, lastSeenAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
+                {
+                    userId: args.ownerId,
+                    name: args.ownerName,
+                    level: Math.max(1, Math.min(300, Math.floor(Number(args.ownerLevel ?? 1) || 1))),
+                    job: (args.ownerJob ?? "전사"),
+                    power: Math.max(0, Math.min(9_999_999, Math.floor(Number(args.ownerPower ?? 0) || 0))),
+                    joinedAt: now,
+                    lastSeenAt: now,
+                    buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 }
+                }
             ],
             createdAt: now,
             updatedAt: now
@@ -71,15 +80,44 @@ class PartyStore {
     deleteParty(id) {
         this.parties.delete(id);
     }
-    ensureMember(partyId, userId, name) {
+    ensureMember(partyId, userId, name, profile) {
         const p = this.parties.get(partyId);
         if (!p)
             return null;
         // remove duplicates
         p.members = p.members.filter((m) => m.userId !== userId);
-        p.members.push({ userId, name, joinedAt: Date.now(), lastSeenAt: Date.now(), buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } });
+        p.members.push({
+            userId,
+            name,
+            level: Math.max(1, Math.min(300, Math.floor(Number(profile?.level ?? 1) || 1))),
+            job: (profile?.job ?? "전사"),
+            power: Math.max(0, Math.min(9_999_999, Math.floor(Number(profile?.power ?? 0) || 0))),
+            joinedAt: Date.now(),
+            lastSeenAt: Date.now(),
+            buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 }
+        });
         p.updatedAt = Date.now();
         return p;
+    }
+    updateMemberProfile(userId, patch) {
+        const touched = [];
+        for (const [pid, p] of this.parties) {
+            const idx = p.members.findIndex((m) => m.userId === userId);
+            if (idx < 0)
+                continue;
+            const m = p.members[idx];
+            p.members[idx] = {
+                ...m,
+                name: (patch.name ?? m.name),
+                level: patch.level != null ? Math.max(1, Math.min(300, Math.floor(Number(patch.level) || 1))) : m.level,
+                job: (patch.job ?? m.job),
+                power: patch.power != null ? Math.max(0, Math.min(9_999_999, Math.floor(Number(patch.power) || 0))) : m.power,
+            };
+            // owner name is derived from member display in UI, so keep ownerId only.
+            p.updatedAt = Date.now();
+            touched.push(pid);
+        }
+        return touched;
     }
     removeMember(partyId, userId) {
         const p = this.parties.get(partyId);
@@ -107,7 +145,7 @@ class PartyStore {
         const already = cur.members.some((m) => m.userId === args.userId);
         if (!already && cur.members.length >= PARTY_MAX_MEMBERS)
             throw new Error("FULL");
-        const p = this.ensureMember(args.partyId, args.userId, args.name);
+        const p = this.ensureMember(args.partyId, args.userId, args.name, { level: args.level, job: args.job, power: args.power });
         if (!p)
             throw new Error("NOT_FOUND");
         return p;
@@ -120,7 +158,7 @@ class PartyStore {
         if (!already) {
             if (p.members.length >= PARTY_MAX_MEMBERS)
                 throw new Error("FULL");
-            this.ensureMember(args.partyId, args.userId, args.name);
+            this.ensureMember(args.partyId, args.userId, args.name, { level: args.level, job: args.job, power: args.power });
         }
         return this.getParty(args.partyId);
     }

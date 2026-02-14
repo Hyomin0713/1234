@@ -323,10 +323,14 @@ app.post("/api/party", (req, res) => {
   if (!auth) return;
   try {
     const body = createPartySchema.parse(req.body);
+    const up = USERS.get(auth.user.id);
     const party = STORE.createParty({
       title: body.title,
       ownerId: auth.user.id,
       ownerName: auth.user.global_name ?? auth.user.username,
+      ownerLevel: up?.level ?? 1,
+      ownerJob: (up?.job as any) ?? "전사",
+      ownerPower: up?.power ?? 0,
       lockPassword: body.lockPassword ?? null,
       groundId: body.groundId ?? null,
       groundName: body.groundName ?? null
@@ -343,10 +347,14 @@ app.post("/api/party/join", (req, res) => {
   if (!auth) return;
   try {
     const body = joinPartySchema.parse(req.body);
+    const up = USERS.get(auth.user.id);
     const party = STORE.joinParty({
       partyId: body.partyId,
       userId: auth.user.id,
       name: auth.user.global_name ?? auth.user.username,
+      level: up?.level ?? 1,
+      job: (up?.job as any) ?? "전사",
+      power: up?.power ?? 0,
       lockPassword: body.lockPassword ?? null,
       groundId: body.groundId ?? null,
       groundName: body.groundName ?? null
@@ -363,7 +371,15 @@ app.post("/api/party/rejoin", (req, res) => {
   if (!auth) return;
   try {
     const body = rejoinSchema.parse(req.body);
-    const party = STORE.rejoin({ partyId: body.partyId, userId: auth.user.id, name: auth.user.global_name ?? auth.user.username });
+    const up = USERS.get(auth.user.id);
+    const party = STORE.rejoin({
+      partyId: body.partyId,
+      userId: auth.user.id,
+      name: auth.user.global_name ?? auth.user.username,
+      level: up?.level ?? 1,
+      job: (up?.job as any) ?? "전사",
+      power: up?.power ?? 0,
+    });
     broadcastParty(body.partyId);
     res.json({ party });
   } catch {
@@ -578,9 +594,28 @@ io.on("connection", (socket) => {
     if (!u) return;
 
     socketToUserId.set(socket.id, u.id);
-    
-    // store profile without joining a ground yet (huntingGroundId required for searching; we keep state via join)
-    // We'll just keep it in memory on the client; server will accept latest values when joining.
+
+    const displayName = String(p?.displayName ?? (u.global_name ?? u.username) ?? u.username).trim() || (u.global_name ?? u.username);
+    const level = Number(p?.level ?? 1);
+    const job = p?.job ?? "전사";
+    const power = Number(p?.power ?? 0);
+
+    // Persist into server-side UserStore so party APIs can enrich members.
+    USERS.upsert(u.id, { displayName, level, job, power });
+
+    // If user is already in queue, update their live entry too.
+    const cur = QUEUE.get(u.id);
+    if (cur && cur.state !== "idle") {
+      cur.displayName = displayName;
+      cur.level = Math.max(1, Math.min(300, Math.floor(level) || 1));
+      cur.job = job;
+      cur.power = Math.max(0, Math.min(9_999_999, Math.floor(power) || 0));
+      cur.updatedAt = Date.now();
+    }
+
+    // If user is in any party, update member snapshot and broadcast.
+    const touched = STORE.updateMemberProfile(u.id, { name: displayName, level, job, power });
+    for (const pid of touched) broadcastParty(pid);
   });
 
   socket.on("queue:join", (p: any) => {
@@ -622,14 +657,24 @@ io.on("connection", (socket) => {
         const party = STORE.createParty({
           ownerId: leaderId,
           ownerName: leaderEntry.displayName,
-          title: `사냥터 ${huntingGroundId}`
-          ,groundId: huntingGroundId
-          ,groundName: `사냥터 ${huntingGroundId}`,
+          ownerLevel: Number(leaderEntry.level ?? 1),
+          ownerJob: (leaderEntry.job as any) ?? "전사",
+          ownerPower: Number(leaderEntry.power ?? 0),
+          title: `사냥터 ${huntingGroundId}`,
+          groundId: huntingGroundId,
+          groundName: `사냥터 ${huntingGroundId}`,
           lockPassword: null
         });
         const partyId = party.id;
 
-        STORE.joinParty({ partyId, userId: otherEntry.userId, name: otherEntry.displayName });
+        STORE.joinParty({
+          partyId,
+          userId: otherEntry.userId,
+          name: otherEntry.displayName,
+          level: Number(otherEntry.level ?? 1),
+          job: (otherEntry.job as any) ?? "전사",
+          power: Number(otherEntry.power ?? 0),
+        });
 
         // remember party id for both queue entries
         QUEUE.setPartyForMatch(matched.matchId, partyId);
