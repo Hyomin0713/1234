@@ -215,6 +215,11 @@ export default function Page() {
 
   const normalizeKey = (s: any) => String(s ?? "").toLowerCase().replace(/\s+/g, "");
 
+  const selected = useMemo(
+    () => ALL_GROUNDS.find((g) => g.id === selectedId) ?? filtered[0] ?? ALL_GROUNDS[0],
+    [selectedId, filtered, ALL_GROUNDS]
+  );
+
   const partiesForSelected = useMemo(() => {
     if (!selected?.name) return partyList;
     // Prefer exact matching by groundId when server provides it; fallback to title includes for older parties.
@@ -255,10 +260,6 @@ export default function Page() {
     });
   }, [query, ALL_GROUNDS]);
 
-  const selected = useMemo(
-    () => ALL_GROUNDS.find((g) => g.id === selectedId) ?? filtered[0] ?? ALL_GROUNDS[0],
-    [selectedId, filtered, ALL_GROUNDS]
-  );
 
   const isCustomSelected = useMemo(() => selectedId.startsWith("c_"), [selectedId]);
 
