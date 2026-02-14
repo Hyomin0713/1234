@@ -710,7 +710,7 @@ export default function Page() {
     minHeight: "100vh",
     display: "grid",
     gridTemplateColumns: "260px 1fr minmax(360px, 440px)",
-    gridTemplateRows: "auto auto auto",
+    gridTemplateRows: "72px 1fr 140px",
     gap: 14,
     padding: 14,
     boxSizing: "border-box",
@@ -885,7 +885,7 @@ export default function Page() {
       />
 
       {}
-      <section style={{ ...card, gridColumn: "3", gridRow: "1", display: "flex", flexDirection: "column" }}>
+      <section style={{ ...card, gridColumn: "3", gridRow: "1 / span 2", display: "flex", flexDirection: "column" }}>
         <div style={{ ...cardHeader, alignItems: "flex-start" }}>
           <div style={{ display: "grid", gap: 2 }}>
             <div style={{ fontWeight: 800 }}>파티 정보</div>
