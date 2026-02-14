@@ -3,6 +3,7 @@ export type PartyMember = {
   userId: string;
   name: string;
   joinedAt: number;
+  lastSeenAt: number;
   buffs: Buffs;
 };
 export type Party = {
@@ -17,6 +18,17 @@ export type Party = {
 };
 
 const PARTY_MAX_MEMBERS = 6;
+
+function pickNextOwnerId(members: PartyMember[]): string {
+  if (!members.length) return "";
+  const sorted = [...members].sort((a, b) => {
+    const as = a.lastSeenAt ?? a.joinedAt;
+    const bs = b.lastSeenAt ?? b.joinedAt;
+    if (bs !== as) return bs - as;
+    return (a.joinedAt ?? 0) - (b.joinedAt ?? 0);
+  });
+  return sorted[0]?.userId ?? "";
+}
 
 function randCode(len = 6) {
   const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
@@ -46,7 +58,7 @@ class PartyStore {
       isLocked: false,
       lockPasswordHash: null,
       members: [
-        { userId: args.ownerId, name: args.ownerName, joinedAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
+        { userId: args.ownerId, name: args.ownerName, joinedAt: now, lastSeenAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
       ],
       createdAt: now,
       updatedAt: now
@@ -83,7 +95,7 @@ class PartyStore {
     if (!p) return null;
     // remove duplicates
     p.members = p.members.filter((m) => m.userId !== userId);
-    p.members.push({ userId, name, joinedAt: Date.now(), buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } });
+    p.members.push({ userId, name, joinedAt: Date.now(), lastSeenAt: Date.now(), buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } });
     p.updatedAt = Date.now();
     return p;
   }
@@ -93,7 +105,7 @@ class PartyStore {
     if (!p) return null;
     p.members = p.members.filter((m) => m.userId !== userId);
     if (p.ownerId === userId && p.members.length) {
-      p.ownerId = p.members[0].userId;
+      p.ownerId = pickNextOwnerId(p.members);
     }
     p.updatedAt = Date.now();
     if (!p.members.length) {
@@ -150,6 +162,7 @@ class PartyStore {
     const m = p.members.find((x) => x.userId === args.memberId);
     if (!m) throw new Error("NOT_FOUND");
     m.name = args.displayName.trim() || m.name;
+    m.lastSeenAt = Date.now();
     p.updatedAt = Date.now();
     return p;
   }
@@ -198,6 +211,7 @@ class PartyStore {
       ppeongbi: buffs.ppeongbi ?? m.buffs.ppeongbi,
       syapbi: buffs.syapbi ?? m.buffs.syapbi
     };
+    m.lastSeenAt = Date.now();
     p.updatedAt = Date.now();
     return p;
   }
@@ -226,6 +240,50 @@ class PartyStore {
     p.lockPasswordHash = isLocked ? hash(password ?? "") : null;
     p.updatedAt = Date.now();
     return p;
+  }
+
+
+  touchMember(partyId: string, userId: string) {
+    const p = this.parties.get(partyId);
+    if (!p) return null;
+    const m = p.members.find((x) => x.userId === userId);
+    if (!m) return null;
+    m.lastSeenAt = Date.now();
+    p.updatedAt = Date.now();
+    return p;
+  }
+
+  /** Remove stale members who haven't heartbeated recently. Returns partyIds that changed. */
+  sweepStaleMembers(opts: { memberTtlMs: number; partyTtlMs: number }) {
+    const now = Date.now();
+    const changed = new Set<string>();
+
+    for (const [partyId, p] of this.parties.entries()) {
+      // party-level TTL: if no member has been seen within partyTtlMs, drop the party
+      const newestSeen = p.members.reduce((mx, m) => Math.max(mx, m.lastSeenAt ?? m.joinedAt), 0);
+      if (now - newestSeen > opts.partyTtlMs) {
+        this.parties.delete(partyId);
+        changed.add(partyId);
+        continue;
+      }
+
+      const before = p.members.length;
+      p.members = p.members.filter((m) => now - (m.lastSeenAt ?? m.joinedAt) <= opts.memberTtlMs);
+      if (p.members.length !== before) {
+        // owner delegation if owner got removed
+        if (!p.members.some((m) => m.userId === p.ownerId)) {
+          p.ownerId = pickNextOwnerId(p.members);
+        }
+        p.updatedAt = now;
+        if (p.members.length === 0) {
+          this.parties.delete(partyId);
+        } else {
+          this.parties.set(partyId, p);
+        }
+        changed.add(partyId);
+      }
+    }
+    return Array.from(changed);
   }
 
   canJoin(partyId: string, password: string | undefined) {

@@ -374,6 +374,19 @@ export default function Page() {
   }, [partyId]);
 
   useEffect(() => {
+    const sck = socketRef.current;
+    if (!sck) return;
+    if (!sockConnected) return;
+    if (!partyId) return;
+
+    // Party heartbeat: keep membership alive across refresh / transient disconnects
+    const beat = () => sck.emit("party:heartbeat", { partyId });
+    beat();
+    const t = setInterval(beat, 25_000);
+    return () => clearInterval(t);
+  }, [partyId, sockConnected]);
+
+  useEffect(() => {
     // keep my buffs input in sync when party updates
     if (!party || !me) return;
     const my = (party.members ?? []).find((m: any) => m.userId === me.user.id);

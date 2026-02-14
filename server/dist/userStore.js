@@ -24,6 +24,7 @@ export class UserStore {
         if (!uid || !name)
             return;
         this.nameToId.set(name, uid);
+        this.nameToId.set(name.toLowerCase(), uid);
     }
     resolveNameToId(s) {
         const t = normStr(s, 64);
@@ -31,7 +32,7 @@ export class UserStore {
             return null;
         if (/^[0-9]{5,}$/.test(t))
             return t;
-        return this.nameToId.get(t) ?? null;
+        return this.nameToId.get(t) ?? this.nameToId.get(t.toLowerCase()) ?? null;
     }
     get(userId) {
         return this.byId.get(normStr(userId, 64));

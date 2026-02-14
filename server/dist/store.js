@@ -11,6 +11,19 @@ function hash(pw) {
     for (let i = 0; i < pw.length; i++)
         h = (h * 31 + pw.charCodeAt(i)) >>> 0;
     return String(h);
+
+function pickNextOwnerId(members) {
+    if (!members.length)
+        return "";
+    const sorted = [...members].sort((a, b) => {
+        const as = (a.lastSeenAt ?? a.joinedAt);
+        const bs = (b.lastSeenAt ?? b.joinedAt);
+        if (bs !== as)
+            return bs - as;
+        return (a.joinedAt ?? 0) - (b.joinedAt ?? 0);
+    });
+    return (sorted[0]?.userId) ?? "";
+}
 }
 class PartyStore {
     parties = new Map();
@@ -26,7 +39,7 @@ class PartyStore {
             isLocked: false,
             lockPasswordHash: null,
             members: [
-                { userId: args.ownerId, name: args.ownerName, joinedAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
+                { userId: args.ownerId, name: args.ownerName, joinedAt: now, lastSeenAt: now, buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } }
             ],
             createdAt: now,
             updatedAt: now
@@ -60,7 +73,7 @@ class PartyStore {
             return null;
         // remove duplicates
         p.members = p.members.filter((m) => m.userId !== userId);
-        p.members.push({ userId, name, joinedAt: Date.now(), buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } });
+        p.members.push({ userId, name, joinedAt: Date.now(), lastSeenAt: Date.now(), buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 } });
         p.updatedAt = Date.now();
         return p;
     }
@@ -70,7 +83,7 @@ class PartyStore {
             return null;
         p.members = p.members.filter((m) => m.userId !== userId);
         if (p.ownerId === userId && p.members.length) {
-            p.ownerId = p.members[0].userId;
+            p.ownerId = pickNextOwnerId(p.members);
         }
         p.updatedAt = Date.now();
         if (!p.members.length) {
@@ -122,6 +135,7 @@ class PartyStore {
         if (!m)
             throw new Error("NOT_FOUND");
         m.name = args.displayName.trim() || m.name;
+        m.lastSeenAt = Date.now();
         p.updatedAt = Date.now();
         return p;
     }
@@ -176,6 +190,7 @@ class PartyStore {
             ppeongbi: buffs.ppeongbi ?? m.buffs.ppeongbi,
             syapbi: buffs.syapbi ?? m.buffs.syapbi
         };
+        m.lastSeenAt = Date.now();
         p.updatedAt = Date.now();
         return p;
     }
@@ -206,7 +221,49 @@ class PartyStore {
         p.updatedAt = Date.now();
         return p;
     }
-    canJoin(partyId, password) {
+    
+    touchMember(partyId, userId) {
+        const p = this.parties.get(partyId);
+        if (!p)
+            return null;
+        const m = p.members.find((x) => x.userId === userId);
+        if (!m)
+            return null;
+        m.lastSeenAt = Date.now();
+        p.updatedAt = Date.now();
+        return p;
+    }
+    /** Remove stale members who haven't heartbeated recently. Returns partyIds that changed. */
+    sweepStaleMembers(opts) {
+        const now = Date.now();
+        const changed = new Set();
+        for (const [partyId, p] of this.parties.entries()) {
+            const newestSeen = p.members.reduce((mx, m) => Math.max(mx, (m.lastSeenAt ?? m.joinedAt)), 0);
+            if (now - newestSeen > opts.partyTtlMs) {
+                this.parties.delete(partyId);
+                changed.add(partyId);
+                continue;
+            }
+            const before = p.members.length;
+            p.members = p.members.filter((m) => now - (m.lastSeenAt ?? m.joinedAt) <= opts.memberTtlMs);
+            if (p.members.length !== before) {
+                if (!p.members.some((m) => m.userId === p.ownerId)) {
+                    p.ownerId = pickNextOwnerId(p.members);
+                }
+                p.updatedAt = now;
+                if (p.members.length === 0) {
+                    this.parties.delete(partyId);
+                }
+                else {
+                    this.parties.set(partyId, p);
+                }
+                changed.add(partyId);
+            }
+        }
+        return Array.from(changed);
+    }
+
+canJoin(partyId, password) {
         const p = this.parties.get(partyId);
         if (!p)
             return { ok: false, reason: "NOT_FOUND" };

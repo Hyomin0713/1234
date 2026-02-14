@@ -39,6 +39,9 @@ import { USERS } from "./userStore.js";
 import { createPartySchema, joinPartySchema, rejoinSchema, buffsSchema, updateMemberSchema, updateTitleSchema, kickSchema, transferOwnerSchema, lockSchema, profileSchema } from "./validators.js";
 import { cleanupSessions, cookieSerialize, deleteSession, getSession, newSession, parseCookies } from "./auth.js";
 const PORT = Number(process.env.PORT ?? 8000);
+// Party keep-alive / TTL
+const MEMBER_TTL_MS = Number(process.env.MEMBER_TTL_MS ?? 70000);
+const PARTY_TTL_MS = Number(process.env.PARTY_TTL_MS ?? 10 * 60000);
 // ✅ one-domain deployment: ORIGIN=PUBLIC_URL (Railway) or your custom domain
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? process.env.ORIGIN ?? `http://localhost:${PORT}`).trim();
 const ORIGIN_RAW = (process.env.ORIGIN ?? PUBLIC_URL).trim();
@@ -420,6 +423,34 @@ app.post("/api/party/transfer", (req, res) => {
 /** ---------------- Socket.IO ---------------- */
 // socket ↔ user mapping (for queue cleanup on disconnect etc.)
 const socketToUserId = new Map();
+
+function cleanupPartyMembership(userId) {
+    try {
+        const cur = QUEUE.get(userId);
+        const pid = cur?.partyId;
+        if (!pid)
+            return;
+        const before = STORE.getParty(pid);
+        const out = STORE.leaveParty({ partyId: pid, userId });
+        const p = out ?? STORE.getParty(pid);
+        const wasAuto = !!before?.title?.startsWith("사냥터 ");
+        if (wasAuto && p && p.members.length < 2) {
+            STORE.deleteParty(pid);
+            io.to(pid).emit("partyDeleted", { partyId: pid });
+            broadcastParties();
+            return;
+        }
+        if (!p) {
+            io.to(pid).emit("partyDeleted", { partyId: pid });
+            broadcastParties();
+            return;
+        }
+        broadcastParty(pid);
+    }
+    catch {
+        // ignore
+    }
+}
 function requireSocketUser(socket) {
     try {
         const cookieHeader = (socket.handshake.headers?.cookie ?? "");
@@ -437,10 +468,26 @@ io.on("connection", (socket) => {
         if (!partyId)
             return;
         socket.join(partyId);
+        const u = requireSocketUser(socket);
+        if (u) {
+            STORE.touchMember(partyId, u.id);
+        }
         const party = STORE.getParty(partyId);
         if (party)
             socket.emit("partyUpdated", { party });
     });
+    socket.on("party:heartbeat", ({ partyId }) => {
+        const u = requireSocketUser(socket);
+        if (!u)
+            return;
+        if (!partyId)
+            return;
+        const p = STORE.touchMember(String(partyId), u.id);
+        if (p) {
+            broadcastParty(String(partyId));
+        }
+    });
+
     // --- queue matchmaking ---
     function ensureLoggedIn() {
         const u = requireSocketUser(socket);
@@ -559,6 +606,7 @@ io.on("connection", (socket) => {
         const u = requireSocketUser(socket);
         const uid = u?.id ?? socketToUserId.get(socket.id);
         if (uid) {
+            cleanupPartyMembership(uid);
             QUEUE.leave(uid);
             socketToUserId.delete(socket.id);
         }
@@ -567,11 +615,36 @@ io.on("connection", (socket) => {
     socket.on("disconnect", () => {
         const uid = socketToUserId.get(socket.id);
         if (uid) {
+            cleanupPartyMembership(uid);
             QUEUE.leave(uid);
             socketToUserId.delete(socket.id);
         }
     });
 });
+
+// Party TTL / member TTL sweep + queue cleanup for dangling partyIds
+setInterval(() => {
+    try {
+        const changedPartyIds = STORE.sweepStaleMembers({ memberTtlMs: MEMBER_TTL_MS, partyTtlMs: PARTY_TTL_MS });
+        if (changedPartyIds.length) {
+            for (const pid of changedPartyIds) {
+                if (!STORE.getParty(pid)) {
+                    io.to(pid).emit("partyDeleted", { partyId: pid });
+                }
+            }
+            broadcastParties();
+        }
+        const cleaned = QUEUE.cleanupDanglingParties((pid) => !!STORE.getParty(pid));
+        if (cleaned.length) {
+            for (const e of cleaned) {
+                io.to(e.socketId).emit("queue:status", { state: "idle" });
+            }
+        }
+    }
+    catch {
+        // ignore
+    }
+}, 15000).unref();
 // Serve static web build (Next export output)
 const webOut = path.resolve(process.cwd(), "../web/out");
 if (fs.existsSync(webOut)) {

@@ -169,5 +169,32 @@ export class QueueStore {
         }
         return { ok: true, matchId, channel: ch, members };
     }
+
+    /**
+     * Clear queue entries that reference parties that no longer exist.
+     * This prevents clients from being stuck with a stale partyId after TTL/disband.
+     */
+    cleanupDanglingParties(partyExists) {
+        const now = Date.now();
+        const cleaned = [];
+        for (const e of this.byUserId.values()) {
+            if (!e.partyId)
+                continue;
+            const pid = normStr(e.partyId, 64);
+            if (!pid)
+                continue;
+            if (partyExists(pid))
+                continue;
+            e.state = "idle";
+            e.matchId = undefined;
+            e.leaderId = undefined;
+            e.channel = undefined;
+            e.partyId = undefined;
+            e.updatedAt = now;
+            this.byUserId.set(e.userId, e);
+            cleaned.push(e);
+        }
+        return cleaned;
+    }
 }
 export const QUEUE = new QueueStore();
