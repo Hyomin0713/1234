@@ -873,7 +873,6 @@ export default function Page() {
         cardHeader={cardHeader}
       />
 
-      {}
       <SearchHeader
         query={query}
         onChangeQuery={setQuery}
@@ -883,7 +882,6 @@ export default function Page() {
         cardHeader={cardHeader}
       />
 
-      {}
             <aside style={{ gridColumn: "3", gridRow: "1 / span 3", display: "flex", flexDirection: "column", gap: 12 }}>
 <section style={{ ...card, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 360, flex: "0 0 auto", maxHeight: "62vh" }}>
         <div style={{ ...cardHeader, alignItems: "flex-start" }}>
@@ -1069,7 +1067,6 @@ export default function Page() {
                   <div style={{ fontWeight: 850, letterSpacing: 0.2 }}>{`매칭중입니다${".".repeat(dotTick)}`}</div>
                 </div>
 
-                {}
                 <div
                   style={{
                     height: 8,
@@ -1416,9 +1413,7 @@ export default function Page() {
       </aside>
 
 
-      {}
       <main style={{ ...card, gridColumn: "2", gridRow: "2", display: "grid", gridTemplateColumns: "420px 1fr" }}>
-        {}
         <GroundCardList
           filtered={filtered}
           selectedId={selected?.id ?? ""}
@@ -1432,7 +1427,6 @@ export default function Page() {
           btn={btn}
         />
 
-        {}
         <section>
           <div style={cardHeader}>
             <div style={{ fontWeight: 900 }}>{selected?.name ?? "사냥터 선택"}</div>
@@ -1542,8 +1536,6 @@ export default function Page() {
         </section>
       </main>
 
-      {}
-      <asi    {}
       <footer style={{ ...card, background: "rgb(12,16,24)", gridColumn: "2 / span 2", gridRow: "3" }}>
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>광고 영역</div>
@@ -1566,107 +1558,6 @@ export default function Page() {
         </div>
       </footer>
 
-      {}
-      {groundEditorOpen && groundDraft ? (
-        <div
-          style={modalOverlay}
-          onClick={() => {
-            setGroundEditorOpen(false);
-            setGroundDraft(null);
-          }}
-        >
-          <div
-            style={modalCard}
-            onClick={(e) => {
-              e.stopPropagation();
-            }}
-          >
-            <div style={modalTitle}>
-              <div style={{ fontWeight: 900 }}>
-                {groundDraft.id.startsWith("c_") ? "사냥터 편집" : "사냥터"}
-              </div>
-              <div style={muted}>커스텀 사냥터 정보</div>
-            </div>
-
-            <div style={{ padding: 14 }}>
-              <div style={formRow}>
-                <div style={label}>이름</div>
-                <input
-                  style={input}
-                  value={groundDraft.name}
-                  placeholder="예: 와일드보어의 땅"
-                  onChange={(e) => setGroundDraft({ ...groundDraft, name: e.target.value })}
-                />
-              </div>
-
-              <div style={formRow}>
-                <div style={label}>지역/맵</div>
-                <input
-                  style={input}
-                  value={groundDraft.area ?? ""}
-                  placeholder="예: 페리온"
-                  onChange={(e) => setGroundDraft({ ...groundDraft, area: e.target.value })}
-                />
-              </div>
-
-              <div style={formRow}>
-                <div style={label}>권장 레벨</div>
-                <input
-                  style={input}
-                  value={groundDraft.recommendedLevel ?? ""}
-                  placeholder="예: 35~45"
-                  onChange={(e) => setGroundDraft({ ...groundDraft, recommendedLevel: e.target.value })}
-                />
-              </div>
-
-              <div style={formRow}>
-                <div style={label}>태그 (쉼표로 구분)</div>
-                <input
-                  style={input}
-                  value={(groundDraft.tags ?? []).join(", ")}
-                  placeholder="예: 자리좋음, 2층, 리젠좋음"
-                  onChange={(e) =>
-                    setGroundDraft({
-                      ...groundDraft,
-                      tags: e.target.value
-                        .split(",")
-                        .map((x) => x.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                />
-              </div>
-
-              <div style={formRow}>
-                <div style={label}>메모</div>
-                <textarea
-                  style={{ ...input, minHeight: 90, resize: "vertical" as const }}
-                  value={groundDraft.note ?? ""}
-                  placeholder="추가 메모"
-                  onChange={(e) => setGroundDraft({ ...groundDraft, note: e.target.value })}
-                />
-              </div>
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
-                <button
-                  style={btn}
-                  onClick={() => {
-                    setGroundEditorOpen(false);
-                    setGroundDraft(null);
-                  }}
-                >
-                  취소
-                </button>
-                <button style={{ ...btnPrimary, padding: "10px 14px" }} onClick={saveGroundDraft}>
-                  저장
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {}
       {settingsOpen ? (
         <div
           onClick={() => setSettingsOpen(false)}
