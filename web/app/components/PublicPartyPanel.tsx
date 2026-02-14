@@ -73,11 +73,12 @@ export function PublicPartyPanel(props: {
                     {locked ? <span style={{ ...pill, borderColor: "rgba(255,180,120,0.35)", background: "rgba(255,180,120,0.10)" }}>잠금</span> : null}
                     {isMine ? <span style={{ ...pill, borderColor: "rgba(120,200,255,0.40)", background: "rgba(120,200,255,0.12)" }}>내 파티</span> : null}
                   </div>
-                  <div style={muted}>{count}명</div>
+                  <div style={muted}>{`${count}/${p.maxMembers ?? 6}명`}</div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <button
                     onClick={() => {
+                      if (count >= (p.maxMembers ?? 6)) return;
                       if (locked) {
                         const pw = prompt("비밀번호");
                         if (pw == null) return;
@@ -86,7 +87,8 @@ export function PublicPartyPanel(props: {
                         onJoin(p.id);
                       }
                     }}
-                    style={btnSm}
+                    style={{ ...btnSm, cursor: count >= (p.maxMembers ?? 6) ? "not-allowed" : "pointer", opacity: count >= (p.maxMembers ?? 6) ? 0.5 : 1 }}
+                    disabled={count >= (p.maxMembers ?? 6)}
                   >
                     참가
                   </button>

@@ -475,6 +475,22 @@ export default function Page() {
     } catch {}
   };
 
+  const transferOwner = async (newOwnerId: string) => {
+    if (!partyId) return;
+    try {
+      const sid = getSid();
+      await fetch("/api/party/transfer", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sid ? { "x-ml-session": sid } : {}),
+        },
+        body: JSON.stringify({ partyId, newOwnerId }),
+      });
+    } catch {}
+  };
+
   const joinPartyByCode = async () => {
     const code = joinCode.trim();
     if (!code) return;
@@ -1446,6 +1462,7 @@ export default function Page() {
                 myBuffs={myBuffs}
                 onChangeMyBuffs={setMyBuffs}
                 onPushMyBuffs={pushMyBuffs}
+                onTransferOwner={transferOwner}
                 fmtNumber={fmtNumber}
                 card={card}
                 muted={muted}

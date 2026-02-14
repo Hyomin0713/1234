@@ -29,13 +29,14 @@ export function BuffTable(props: {
   myBuffs: { simbi: number; ppeongbi: number; syapbi: number };
   onChangeMyBuffs: (v: { simbi: number; ppeongbi: number; syapbi: number }) => void;
   onPushMyBuffs: (next: { simbi: number; ppeongbi: number; syapbi: number }) => void | Promise<void>;
+  onTransferOwner?: (newOwnerId: string) => void | Promise<void>;
   fmtNumber: (n: number | null | undefined) => string;
   card: React.CSSProperties;
   muted: React.CSSProperties;
   chip: React.CSSProperties;
   input: React.CSSProperties;
 }) {
-  const { partyId, party, me, myBuffs, onChangeMyBuffs, onPushMyBuffs, fmtNumber, card, muted, chip, input } = props;
+  const { partyId, party, me, myBuffs, onChangeMyBuffs, onPushMyBuffs, onTransferOwner, fmtNumber, card, muted, chip, input } = props;
   const myId = me?.user?.id || "";
 
   const rows = useMemo(() => {
@@ -53,13 +54,15 @@ export function BuffTable(props: {
 
   const myInParty = !!partyId && !!party && (party.members || []).some((m) => m.id === myId);
   const canEdit = myInParty && !!rows.ownerId && rows.ownerId === myId;
+  const memberCount = party?.members?.length ?? 0;
+  const maxMembers = 6;
 
   return (
     <div style={{ ...card, background: "rgba(255,255,255,0.04)" }}>
       <div style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
         <div>
           <div style={{ fontWeight: 900 }}>파티 버프</div>
-          <div style={muted}>{partyId ? `파티: ${partyId.slice(0, 6)}...` : "파티 없음"}</div>
+          <div style={muted}>{partyId ? `파티: ${partyId.slice(0, 6)}... · ${memberCount}/${maxMembers}명` : "파티 없음"}</div>
         </div>
         <button
           onClick={() => onPushMyBuffs(myBuffs)}
@@ -130,7 +133,7 @@ export function BuffTable(props: {
                     <span>{m.name}</span>
                     {isMe ? <span style={{ ...chip, background: "rgba(120,200,255,0.12)", borderColor: "rgba(120,200,255,0.35)" }}>(나)</span> : null}
                   </div>
-                  <div style={muted}>{m.level ? `Lv. ${m.level}` : ""}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}><div style={muted}>{m.level ? `Lv. ${m.level}` : ""}</div>{canEdit && onTransferOwner && !isOwner ? (<button onClick={() => onTransferOwner(m.id)} style={{ border: "1px solid rgba(255,255,255,0.14)", background: "rgba(255,255,255,0.06)", color: "#e6e8ee", padding: "6px 10px", borderRadius: 10, cursor: "pointer", fontWeight: 800 }}>위임</button>) : null}</div>
                 </div>
                 <div style={{ ...muted, marginTop: 4 }}>
                   {(m.job || "").trim() ? `${m.job}` : "-"} · 스공 {fmtNumber(m.power ?? null)}
