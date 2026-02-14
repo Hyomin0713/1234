@@ -30,12 +30,29 @@ export class UserStore {
   private byId = new Map<string, UserProfile>();
   private nameToId = new Map<string, string>();
 
+
+  get(userId: string): UserProfile | null {
+    const uid = normStr(userId, 64);
+    if (!uid) return null;
+    return this.byId.get(uid) ?? null;
+  }
+
   rememberName(userId: string, displayName: string) {
     const uid = normStr(userId, 64);
     const name = normStr(displayName, 64);
     if (!uid || !name) return;
     this.nameToId.set(name, uid);
     this.nameToId.set(name.toLowerCase(), uid);
+  }
+
+  
+  isNameAvailable(userId: string, displayName: string): boolean {
+    const uid = normStr(userId, 64);
+    const name = normStr(displayName, 64);
+    if (!uid || !name) return true;
+    const key = name.toLowerCase();
+    const existing = this.nameToId.get(key);
+    return !existing || existing === uid;
   }
 
   resolveNameToId(s: string): string | null {

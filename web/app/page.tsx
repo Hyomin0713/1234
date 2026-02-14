@@ -188,7 +188,7 @@ export default function Page() {
   }, [nickname, level, job, power]);
 
   const [blackInput, setBlackInput] = useState("");
-  const [blacklist, setBlacklist] = useState<string[]>(["포켓몬성능"]);
+  const [blacklist, setBlacklist] = useState<string[]>([]);
 
 
   const [matchState, setMatchState] = useState<MatchState>("idle");
@@ -1664,3 +1664,11 @@ export default function Page() {
     </div>
   );
 }
+
+    socket.on("profile:error", (e: any) => {
+      const code = String(e?.code ?? "");
+      if (code === "NICK_REQUIRED") setToast("프로필에서 닉네임을 먼저 설정해줘.");
+      else if (code === "NICK_TAKEN") setToast("이미 사용 중인 닉네임이야. 다른 닉네임으로 설정해줘.");
+      else setToast("프로필 설정을 확인해줘.");
+    });
+
