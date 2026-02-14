@@ -21,6 +21,10 @@ type Toast = { type: "ok" | "err" | "info"; msg: string };
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
+function apiUrl(path: string) {
+  return API ? `${API}${path}` : path;
+}
+
 function tryCopy(text: string) {
   try {
     void navigator.clipboard.writeText(text);
@@ -96,7 +100,7 @@ export default function Page() {
           ? window.location.hash.slice("#sid=".length)
           : "";
 
-        const res = await fetch("/api/me", {
+        const res = await fetch(apiUrl("/api/me"), {
           credentials: "include",
           headers: sid ? { "x-ml-session": decodeURIComponent(sid) } : undefined,
         });
@@ -463,7 +467,7 @@ export default function Page() {
     if (!partyId) return;
     try {
       const sid = getSid();
-      await fetch("/api/party/buffs", {
+      await fetch(apiUrl("/api/party/buffs"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -479,7 +483,7 @@ export default function Page() {
     if (!partyId) return;
     try {
       const sid = getSid();
-      await fetch("/api/party/transfer", {
+      await fetch(apiUrl("/api/party/transfer"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -496,7 +500,7 @@ export default function Page() {
     if (!code) return;
     try {
       const sid = getSid();
-      const res = await fetch("/api/party/join", {
+      const res = await fetch(apiUrl("/api/party/join"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -523,7 +527,7 @@ export default function Page() {
     try {
       setToast(null);
       const sid = getSid();
-      const res = await fetch("/api/party/join", {
+      const res = await fetch(apiUrl("/api/party/join"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -557,7 +561,7 @@ export default function Page() {
 
   const refreshParties = async () => {
     try {
-      const res = await fetch("/api/parties");
+      const res = await fetch(apiUrl("/api/parties"));
       const data = await res.json();
       if (data?.parties) setPartyList(data.parties);
     } catch {
@@ -575,7 +579,7 @@ export default function Page() {
         return;
       }
       const sid = getSid();
-      const res = await fetch("/api/party", {
+      const res = await fetch(apiUrl("/api/party"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -606,7 +610,7 @@ export default function Page() {
     try {
       const title = selected?.name ? `${selected.name} 공개 파티` : "공개 파티";
       const sid = getSid();
-      const res = await fetch("/api/party", {
+      const res = await fetch(apiUrl("/api/party"), {
         method: "POST",
         credentials: "include",
         headers: {
@@ -857,10 +861,10 @@ export default function Page() {
         isLoggedIn={isLoggedIn}
         discordName={discordName}
         discordTag={discordTag}
-        onLogin={() => (window.location.href = "/auth/discord")}
+        onLogin={() => (window.location.href = apiUrl("/auth/discord"))}
         onLogout={async () => {
           try {
-            await fetch("/api/logout", { method: "POST", credentials: "include" });
+            await fetch(apiUrl("/api/logout"), { method: "POST", credentials: "include" });
           } catch {}
           window.location.reload();
         }}
@@ -881,7 +885,7 @@ export default function Page() {
       />
 
       {}
-      <section style={{ ...card, gridColumn: "3", gridRow: "1", display: "flex", flexDirection: "column" }}>
+      <section style={{ ...card, gridColumn: "3", gridRow: "1 / span 3", display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ ...cardHeader, alignItems: "flex-start" }}>
           <div style={{ display: "grid", gap: 2 }}>
             <div style={{ fontWeight: 800 }}>파티 정보</div>
@@ -900,7 +904,7 @@ export default function Page() {
           </div>
         </div>
 
-        <div style={{ padding: 14, display: "grid", gap: 10 }}>
+        <div style={{ padding: 14, display: "grid", gap: 10, overflowY: "auto", flex: 1, minHeight: 0 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <label style={{ display: "grid", gap: 6 }}>
               <div style={muted}>레벨</div>
