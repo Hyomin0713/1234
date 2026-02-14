@@ -999,6 +999,13 @@ export default function Page() {
             {matchState === "matched" && (
               <div style={{ display: "grid", gap: 6 }}>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>매칭완료!</div>
+                {channel ? (
+                  <div style={{ ...muted, fontSize: 13 }}>
+                    채널은 <span style={{ fontWeight: 900, color: "rgba(255,255,255,0.92)" }}>{channel}</span> 입니다.
+                  </div>
+                ) : (
+                  <div style={{ ...muted, fontSize: 13 }}>채널 설정중… (파티장이 설정하면 바로 표시됩니다)</div>
+                )}
                 {partyId ? (
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                     <div style={{ ...chip, background: "rgba(83, 242, 170, 0.12)", borderColor: "rgba(83, 242, 170, 0.35)" }}>
