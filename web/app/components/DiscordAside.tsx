@@ -60,7 +60,6 @@ export function DiscordAside({
             >
               디스코드로 로그인
             </button>
-            <div style={muted}>※ 로그인 후 레벨/직업/스공/블랙리스트 입력 → 사냥터 큐 참가 가능</div>
           </>
         ) : (
           <>

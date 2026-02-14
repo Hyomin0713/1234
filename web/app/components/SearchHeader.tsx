@@ -20,7 +20,7 @@ export function SearchHeader({ query, onChangeQuery, countText, muted, card, car
           <input
             value={query}
             onChange={(e) => onChangeQuery(e.target.value)}
-            placeholder="예: 루디 / 55 / 파티 / 오메가..."
+            placeholder=""
             style={{
               width: "min(640px, 100%)",
               maxWidth: 720,

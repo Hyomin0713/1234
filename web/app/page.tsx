@@ -127,11 +127,6 @@ export default function Page() {
 
   const discordTag = (me?.user?.username ?? "unknown").trim() || "unknown";
   const [nickname, setNickname] = useState("");
-  useEffect(() => {
-    const n = (me?.profile?.displayName ?? me?.user?.global_name ?? me?.user?.username ?? "").trim();
-
-    void n;
-  }, [me]);
 
 
   const [query, setQuery] = useState("");
@@ -177,7 +172,6 @@ export default function Page() {
   useEffect(() => {
     const saved = safeLocalGet("mlq.profile", null as any);
     if (saved && typeof saved === "object") {
-      if (typeof saved.nickname === "string" && saved.nickname.trim()) setNickname(saved.nickname.trim());
       if (typeof saved.level === "number") setLevel(clampInt(String(saved.level), 1, 300));
       if (typeof saved.job === "string") setJob((saved.job as Job) ?? "전사");
       if (typeof saved.power === "number") setPower(clampInt(String(saved.power), 0, 9_999_999));
@@ -345,7 +339,6 @@ export default function Page() {
       if (typeof saved.level === "number") setLevel(saved.level);
       if (typeof saved.job === "string") setJob(saved.job as Job);
       if (typeof saved.power === "number") setPower(saved.power);
-      if (typeof saved.nickname === "string") setNickname(saved.nickname);
       if (Array.isArray(saved.blacklist)) setBlacklist(saved.blacklist.filter((x: any) => typeof x === "string"));
     }
   }, []);
@@ -750,9 +743,10 @@ export default function Page() {
   };
 
   const formRow: React.CSSProperties = {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: 10,
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    minWidth: 0,
   };
 
   const label: React.CSSProperties = { fontSize: 12, color: "rgba(230,232,238,0.75)", marginBottom: 6 };
@@ -801,7 +795,7 @@ export default function Page() {
 
   const formGrid: React.CSSProperties = {
     display: "grid",
-    gridTemplateColumns: "1fr 1fr",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
     gap: 10,
     marginTop: 12,
     marginBottom: 12,
@@ -1658,7 +1652,7 @@ export default function Page() {
                   style={input}
                   value={nickname}
                   onChange={(e) => setNickname(e.target.value)}
-                  placeholder={discordName}
+                  placeholder=""
                 />
               </div>
 
