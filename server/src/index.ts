@@ -125,6 +125,15 @@ function broadcastParty(partyId: string) {
   broadcastParties();
 }
 
+let queueCountTimer: NodeJS.Timeout | null = null;
+function broadcastQueueCounts() {
+  if (queueCountTimer) return;
+  queueCountTimer = setTimeout(() => {
+    queueCountTimer = null;
+    io.emit("queue:counts", { counts: QUEUE.getCountsByGround() });
+  }, 150);
+}
+
 function extractSessionId(req: express.Request): string | undefined {
   const cookies = parseCookies(req.headers.cookie);
   const fromCookie = cookies["ml_session"];
@@ -559,6 +568,9 @@ io.on("connection", (socket) => {
     socketToUserId.set(socket.id, u.id);
     
     emitQueueStatus(u.id);
+
+    // Send current counts on hello so UI immediately has numbers.
+    socket.emit("queue:counts", { counts: QUEUE.getCountsByGround() });
   });
 
   socket.on("queue:updateProfile", (p: any) => {
@@ -596,6 +608,8 @@ io.on("connection", (socket) => {
 
     socket.emit("queue:status", { state: "searching" });
 
+    broadcastQueueCounts();
+
     const matched = QUEUE.tryMatch(huntingGroundId, resolveNameToId);
     if (matched.ok) {
       // Auto-create party for the matched pair (single-domain cookie session; party lives in memory)
@@ -632,6 +646,8 @@ io.on("connection", (socket) => {
 
       emitQueueStatus(matched.a.userId, matched.a.socketId);
       emitQueueStatus(matched.b.userId, matched.b.socketId);
+
+      broadcastQueueCounts();
     }
   });
 
@@ -651,6 +667,8 @@ io.on("connection", (socket) => {
     for (const m of r.members) {
       emitQueueStatus(m.userId, m.socketId);
     }
+
+    broadcastQueueCounts();
   });
 
   socket.on("queue:leave", () => {
@@ -662,6 +680,8 @@ io.on("connection", (socket) => {
       socketToUserId.delete(socket.id);
     }
     socket.emit("queue:status", { state: "idle" });
+
+    broadcastQueueCounts();
   });
 
   socket.on("disconnect", () => {
@@ -671,6 +691,8 @@ io.on("connection", (socket) => {
       QUEUE.leave(uid);
       socketToUserId.delete(socket.id);
     }
+
+    broadcastQueueCounts();
   });
 
 });
@@ -696,6 +718,7 @@ setInterval(() => {
         // If user is connected, nudge their UI back to idle.
         io.to(e.socketId).emit("queue:status", { state: "idle" });
       }
+      broadcastQueueCounts();
     }
   } catch {
     // ignore

@@ -3,6 +3,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
+import { ToastBanner } from "./components/ToastBanner";
+import { DiscordAside } from "./components/DiscordAside";
+import { SearchHeader } from "./components/SearchHeader";
+
 type Job = "전사" | "도적" | "궁수" | "마법사";
 type MatchState = "idle" | "searching" | "matched";
 type QueueStatusPayload = { state: MatchState; channel?: string; message?: string; isLeader?: boolean; channelReady?: boolean; partyId?: string };
@@ -195,6 +199,9 @@ export default function Page() {
   const [channelReady, setChannelReady] = useState(false);
   const [partyId, setPartyId] = useState<string>("");
   const [party, setParty] = useState<any | null>(null);
+
+  // groundId -> active queue count (searching + matched)
+  const [queueCounts, setQueueCounts] = useState<Record<string, number>>({});
   const [myBuffs, setMyBuffs] = useState<{ simbi: number; ppeongbi: number; syapbi: number }>({ simbi: 0, ppeongbi: 0, syapbi: 0 });
   const [channelLetter, setChannelLetter] = useState("A");
   const [channelNum, setChannelNum] = useState("001");
@@ -347,6 +354,12 @@ export default function Page() {
     sck.on("partiesUpdated", (payload: any) => {
       if (!payload?.parties) return;
       setPartyList(payload.parties);
+    });
+
+    sck.on("queue:counts", (payload: any) => {
+      const counts = payload?.counts;
+      if (!counts || typeof counts !== "object") return;
+      setQueueCounts(counts as Record<string, number>);
     });
 
 
@@ -763,166 +776,35 @@ export default function Page() {
   };
   return (
     <div style={shell}>
-      {toast ? (
-        <div
-          onClick={() => setToast(null)}
-          style={{
-            position: "fixed",
-            top: 14,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 100,
-            padding: "10px 12px",
-            borderRadius: 14,
-            maxWidth: "min(520px, calc(100vw - 28px))",
-            background:
-              toast.type === "ok"
-                ? "rgba(83, 242, 170, 0.14)"
-                : toast.type === "err"
-                ? "rgba(255, 120, 120, 0.14)"
-                : "rgba(255, 255, 255, 0.10)",
-            border:
-              toast.type === "ok"
-                ? "1px solid rgba(83, 242, 170, 0.35)"
-                : toast.type === "err"
-                ? "1px solid rgba(255, 120, 120, 0.35)"
-                : "1px solid rgba(255,255,255,0.16)",
-            color: "rgba(245,246,250,0.95)",
-            boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
-            cursor: "pointer",
-            userSelect: "none",
-            fontWeight: 800,
-            letterSpacing: 0.2,
-          }}
-          title="클릭하면 닫힘"
-        >
-          {toast.msg}
-        </div>
-      ) : null}
+      <ToastBanner toast={toast} onClose={() => setToast(null)} />
 
       {/* 1) 디스코드 */}
-      <aside style={{ ...card, gridColumn: "1", gridRow: "1 / span 3", display: "flex", flexDirection: "column" }}>
-        <div style={cardHeader}>
-          <div style={{ fontWeight: 800 }}>메랜큐</div>
-          <div style={{ ...muted }}>beta</div>
-        </div>
-
-        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
-          {!isLoggedIn ? (
-            <>
-              <div style={{ fontWeight: 700, fontSize: 14 }}>디스코드 로그인</div>
-              <button
-                onClick={() => (window.location.href = "/auth/discord")}
-                style={{
-                  width: "100%",
-                  border: "1px solid rgba(255,255,255,0.14)",
-                  background: "rgba(88,101,242,0.18)",
-                  color: "#e6e8ee",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  cursor: "pointer",
-                  fontWeight: 700,
-                }}
-                title="디스코드 OAuth 로그인"
-              >
-                디스코드로 로그인
-              </button>
-              <div style={muted}>※ 로그인 후 레벨/직업/스공/블랙리스트 입력 → 사냥터 큐 참가 가능</div>
-            </>
-          ) : (
-            <>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 36,
-                    minHeight: 44,
-                    borderRadius: 12,
-                    background: "rgba(255,255,255,0.10)",
-                    display: "grid",
-                    placeItems: "center",
-                    fontWeight: 800,
-                  }}
-                >
-                  {discordName.slice(0, 1).toUpperCase()}
-                </div>
-                <div style={{ lineHeight: 1.15 }}>
-                  <div style={{ fontWeight: 800 }}>{discordName}</div>
-                  <div style={{ ...muted }}>@{discordTag}</div>
-                </div>
-              </div>
-
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={async () => {
-                    try {
-                      await fetch("/api/logout", { method: "POST", credentials: "include" });
-                    } catch {}
-                    window.location.reload();
-                  }}
-                  style={{
-                    flex: 1,
-                    border: "1px solid rgba(255,255,255,0.14)",
-                    background: "rgba(255,255,255,0.06)",
-                    color: "#e6e8ee",
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    fontWeight: 700,
-                  }}
-                >
-                  로그아웃
-                </button>
-                <button
-                  onClick={() => alert("추후: 프로필/설정")}
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.14)",
-                    background: "rgba(255,255,255,0.06)",
-                    color: "#e6e8ee",
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    fontWeight: 700,
-                  }}
-                >
-                  ⚙
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-
-        <div style={{ padding: 14, borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: "auto" }}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>가이드</div>
-          <div style={muted}>
-            2번 검색 → 3번 리스트에서 사냥터 선택 → 7번 정보 입력 → 큐 참가(데모) → 매칭완료 채널 표시
-          </div>
-        </div>
-      </aside>
+      <DiscordAside
+        isLoggedIn={isLoggedIn}
+        discordName={discordName}
+        discordTag={discordTag}
+        onLogin={() => (window.location.href = "/auth/discord")}
+        onLogout={async () => {
+          try {
+            await fetch("/api/logout", { method: "POST", credentials: "include" });
+          } catch {}
+          window.location.reload();
+        }}
+        onOpenSettings={() => alert("추후: 프로필/설정")}
+        muted={muted}
+        card={card}
+        cardHeader={cardHeader}
+      />
 
       {/* 2) 사냥터 검색 */}
-      <header style={{ ...card, gridColumn: "2", gridRow: "1", display: "flex", alignItems: "center" }}>
-        <div style={{ ...cardHeader, borderBottom: "none", width: "100%" }}>
-          <div style={{ fontWeight: 800 }}>사냥터 검색</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, justifyContent: "flex-end" }}>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="예: 루디 / 55 / 파티 / 오메가..."
-              style={{
-                width: "min(640px, 100%)",
-                maxWidth: 720,
-                background: "rgba(0,0,0,0.25)",
-                border: "1px solid rgba(255,255,255,0.14)",
-                borderRadius: 12,
-                padding: "10px 12px",
-                color: "#e6e8ee",
-                outline: "none",
-              }}
-            />
-            <div style={muted}>{filtered.length}개</div>
-          </div>
-        </div>
-      </header>
+      <SearchHeader
+        query={query}
+        onChangeQuery={setQuery}
+        countText={`${filtered.length}개`}
+        muted={muted}
+        card={card}
+        cardHeader={cardHeader}
+      />
 
       {/* 7) 큐 정보 (우상단) */}
       <section style={{ ...card, gridColumn: "3", gridRow: "1", display: "flex", flexDirection: "column" }}>
@@ -932,7 +814,11 @@ export default function Page() {
             <div style={{ fontSize: 12, opacity: 0.75 }}>레벨/직업/스공/블랙리스트가 매칭 조건에 반영됩니다.</div>
           </div>
           <div style={{ ...muted, marginLeft: "auto" }}>
-            {matchState === "idle" ? "대기" : matchState === "searching" ? `매칭중${".".repeat(dotTick)}` : `완료 (${channel || "채널 발급"})`}
+            {matchState === "idle"
+              ? "대기"
+              : matchState === "searching"
+              ? `매칭중${".".repeat(dotTick)} · 현재 ${(queueCounts[selectedId] ?? 0)}명`
+              : `완료 (${channel || "채널 발급"})`}
           </div>
         </div>
 
@@ -1369,7 +1255,10 @@ export default function Page() {
 
             <div style={{ ...muted, marginTop: 8 }}>
               {matchState === "idle" && "큐 참가하면 매칭이 시작됩니다."}
-              {matchState === "searching" && "찾는 중… 마음이 바뀌면 ‘큐 취소’ 가능."}
+              {matchState === "searching" &&
+                ((queueCounts[selectedId] ?? 0) >= 2
+                  ? `찾는 중… (현재 ${(queueCounts[selectedId] ?? 0)}명) 마음이 바뀌면 ‘큐 취소’ 가능.`
+                  : `대기 인원이 부족합니다. (현재 ${(queueCounts[selectedId] ?? 0)}명)`)}
               {matchState === "matched" && "채널 확인 후, 필요하면 ‘다시 매칭’도 가능."}
             </div>
 
@@ -1488,7 +1377,7 @@ export default function Page() {
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontWeight: 900 }}>현재 큐</div>
-                    <div style={muted}>데모: {matchState === "searching" ? 5 : 2}명</div>
+                    <div style={muted}>{(queueCounts[selected?.id ?? ""] ?? 0)}명</div>
                   </div>
                 </div>
 

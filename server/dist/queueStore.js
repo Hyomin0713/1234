@@ -111,6 +111,20 @@ export class QueueStore {
         xs.sort((a, b) => b.updatedAt - a.updatedAt);
         return xs;
     }
+    /**
+     * Return counts of active queue entries (searching+matched) grouped by huntingGroundId.
+     */
+    getCountsByGround() {
+        const counts = {};
+        for (const e of this.byUserId.values()) {
+            if (!e.huntingGroundId)
+                continue;
+            if (e.state === "idle")
+                continue;
+            counts[e.huntingGroundId] = (counts[e.huntingGroundId] ?? 0) + 1;
+        }
+        return counts;
+    }
     // naive match: pair up the oldest two searching users who are not mutually blocked
     tryMatch(huntingGroundId, resolveNameToId) {
         const xs = this.listByGround(huntingGroundId).filter((e) => e.state === "searching");
