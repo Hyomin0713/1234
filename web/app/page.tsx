@@ -856,7 +856,6 @@ export default function Page() {
     <div style={shell}>
       <ToastBanner toast={toast} onClose={() => setToast(null)} />
 
-      {}
       <DiscordAside
         isLoggedIn={isLoggedIn}
         discordName={discordName}
