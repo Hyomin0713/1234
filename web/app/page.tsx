@@ -156,6 +156,13 @@ export default function Page() {
   const [myBuffs, setMyBuffs] = useState<{ simbi: number; ppeongbi: number; syapbi: number }>({ simbi: 0, ppeongbi: 0, syapbi: 0 });
   const [channelLetter, setChannelLetter] = useState("A");
   const [channelNum, setChannelNum] = useState("001");
+  const [joinCode, setJoinCode] = useState("");
+  const [joinPassword, setJoinPassword] = useState("");
+  const [createTitle, setCreateTitle] = useState("");
+  const [createLocked, setCreateLocked] = useState(false);
+  const [createPassword, setCreatePassword] = useState("");
+
+  const [partyList, setPartyList] = useState<any[]>([]);
 
   const [dotTick, setDotTick] = useState(1);
   useEffect(() => {
@@ -232,6 +239,11 @@ export default function Page() {
       setParty(payload.party);
     });
 
+    sck.on("partiesUpdated", (payload: any) => {
+      if (!payload?.parties) return;
+      setPartyList(payload.parties);
+    });
+
 
     // ask server to reattach any existing queue state (based on nickname)
     sck.emit("queue:hello", {
@@ -254,6 +266,11 @@ export default function Page() {
     // restore last known party (best-effort). This only affects UI; membership is still server-side.
     const saved = safeLocalGet<string>("mlq.partyId", "") as string;
     if (saved && !partyId) setPartyId(saved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    refreshParties();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -302,6 +319,96 @@ export default function Page() {
     } catch {}
   };
 
+  const joinPartyByCode = async () => {
+    const code = joinCode.trim();
+    if (!code) return;
+    try {
+      const res = await fetch("/api/party/join", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Id": getSid(),
+        },
+        body: JSON.stringify({ partyId: code, password: joinPassword.trim() || undefined }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setPartyId(data.partyId);
+      safeLocalSet("mlq.partyId", data.partyId);
+      setJoinPassword("");
+      setJoinCode("");
+    } catch (e: any) {
+      alert(`파티 입장 실패: ${e?.message ?? e}`);
+    }
+  };
+
+  const joinPartyDirect = async (partyId: string, lockPassword?: string) => {
+    if (!partyId) return;
+    try {
+      setToast(null);
+      const res = await fetch(`${API}/api/party/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ partyId, lockPassword: lockPassword || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "파티 참가 실패");
+      setPartyId(data.partyId);
+      safeLocalSet("mlq.partyId", data.partyId);
+      setToast({ type: "ok", msg: "파티에 참가했습니다." });
+    } catch (e: any) {
+      setToast({ type: "err", msg: e?.message || "파티 참가 실패" });
+    }
+  };
+
+  const joinFromList = async (p: any) => {
+    if (!p?.id) return;
+    if (p.locked) {
+      const pw = window.prompt("이 파티는 잠금 상태입니다. 비밀번호를 입력하세요.");
+      if (pw === null) return;
+      await joinPartyDirect(p.id, pw);
+      return;
+    }
+    await joinPartyDirect(p.id);
+  };
+
+  const refreshParties = async () => {
+    try {
+      const res = await fetch(`${API}/api/parties`);
+      const data = await res.json();
+      if (data?.parties) setPartyList(data.parties);
+    } catch {
+      // ignore
+    }
+  };
+
+  const createPartyManual = async () => {
+    try {
+      const title = (createTitle || "파티").trim();
+      const pw = createLocked ? createPassword.trim() : "";
+      if (createLocked && pw.length < 2) {
+        alert("비밀번호는 2글자 이상으로 설정해줘.");
+        return;
+      }
+      const res = await fetch("/api/party", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Session-Id": getSid(),
+        },
+        body: JSON.stringify({ title, lockPassword: createLocked ? pw : undefined }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setPartyId(data.partyId);
+      safeLocalSet("mlq.partyId", data.partyId);
+      setCreateTitle("");
+      setCreatePassword("");
+      setCreateLocked(false);
+    } catch (e: any) {
+      alert(`파티 생성 실패: ${e?.message ?? e}`);
+    }
+  };
   const joinQueue = () => {
     const sck = socketRef.current;
     if (!sck) return;
@@ -807,6 +914,61 @@ export default function Page() {
                     </button>
                   </div>
                 ) : null}
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8 }}>파티 코드로 입장 / 생성</div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        style={{ ...input, flex: 1 }}
+                        placeholder="파티 코드 입력 (예: ABCD-1234)"
+                        value={joinCode}
+                        onChange={(e) => setJoinCode(e.target.value)}
+                      />
+                      <button style={{ ...btnSmall, whiteSpace: "nowrap" }} onClick={joinPartyByCode}>
+                        입장
+                      </button>
+                    </div>
+                    <input
+                      style={input}
+                      placeholder="비밀번호(필요 시)"
+                      value={joinPassword}
+                      onChange={(e) => setJoinPassword(e.target.value)}
+                    />
+
+                    <div style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
+
+                    <input
+                      style={input}
+                      placeholder="새 파티 제목 (선택)"
+                      value={createTitle}
+                      onChange={(e) => setCreateTitle(e.target.value)}
+                    />
+
+                    <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13, color: "rgba(230,232,238,0.9)" }}>
+                      <input type="checkbox" checked={createLocked} onChange={(e) => setCreateLocked(e.target.checked)} />
+                      비공개(비밀번호)
+                    </label>
+
+                    {createLocked ? (
+                      <input
+                        style={input}
+                        placeholder="새 파티 비밀번호"
+                        value={createPassword}
+                        onChange={(e) => setCreatePassword(e.target.value)}
+                      />
+                    ) : null}
+
+                    <button style={{ ...btn, width: "100%" }} onClick={createPartyManual}>
+                      파티 만들기
+                    </button>
+
+                    <div style={{ ...muted, marginTop: 4 }}>
+                      • 파티장이 비공개로 만든 파티는 비밀번호가 필요해요.
+                    </div>
+                  </div>
+                </div>
+
                 {channelReady ? (
                   <div style={{ fontWeight: 800 }}>채널은 {channel} 입니다.</div>
                 ) : isLeader ? (
@@ -1024,7 +1186,51 @@ export default function Page() {
               );
             })}
           </div>
-        </section>
+        
+        <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "14px 0" }} />
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 900, letterSpacing: 0.2 }}>공개 파티</div>
+          <button
+            onClick={refreshParties}
+            style={{ ...btnSm, background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.12)" }}
+            title="파티 목록 새로고침"
+          >
+            새로고침
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
+          {partyList.length === 0 ? (
+            <div style={muted}>현재 공개된 파티가 없습니다.</div>
+          ) : (
+            partyList
+              .slice(0, 12)
+              .map((p: any) => (
+                <div key={p.id} style={{ ...listCard, borderColor: "rgba(255,255,255,0.12)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                    <div style={{ fontWeight: 850, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.title}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                      <div style={{ ...pill, background: p.locked ? "rgba(255, 214, 102, 0.14)" : "rgba(83, 242, 170, 0.12)", borderColor: p.locked ? "rgba(255, 214, 102, 0.35)" : "rgba(83, 242, 170, 0.35)" }}>
+                        {p.locked ? "잠금" : "공개"}
+                      </div>
+                      <div style={pill}>{p.memberCount}/6</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginTop: 8 }}>
+                    <div style={muted}>방 코드: {String(p.id).slice(0, 8).toUpperCase()}</div>
+                    <button onClick={() => joinFromList(p)} style={btnSm}>
+                      참가
+                    </button>
+                  </div>
+                </div>
+              ))
+          )}
+        </div>
+</section>
 
         {/* 4) 상세 */}
         <section>
