@@ -215,6 +215,15 @@ export default function Page() {
 
   const normalizeKey = (s: any) => String(s ?? "").toLowerCase().replace(/\s+/g, "");
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return ALL_GROUNDS;
+    return ALL_GROUNDS.filter((g) => {
+      const blob = `${g.name} ${g.area} ${g.recommendedLevel} ${g.tags.join(" ")} ${g.note}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [query, ALL_GROUNDS]);
+
   const selected = useMemo(
     () => ALL_GROUNDS.find((g) => g.id === selectedId) ?? filtered[0] ?? ALL_GROUNDS[0],
     [selectedId, filtered, ALL_GROUNDS]
@@ -250,16 +259,6 @@ export default function Page() {
     return window.location.hash.startsWith("#sid=") ? decodeURIComponent(window.location.hash.slice("#sid=".length)) : "";
   };
   const [sockConnected, setSockConnected] = useState(false);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return ALL_GROUNDS;
-    return ALL_GROUNDS.filter((g) => {
-      const blob = `${g.name} ${g.area} ${g.recommendedLevel} ${g.tags.join(" ")} ${g.note}`.toLowerCase();
-      return blob.includes(q);
-    });
-  }, [query, ALL_GROUNDS]);
-
 
   const isCustomSelected = useMemo(() => selectedId.startsWith("c_"), [selectedId]);
 
