@@ -16,6 +16,8 @@ export type Party = {
   updatedAt: number;
 };
 
+const PARTY_MAX_MEMBERS = 6;
+
 function randCode(len = 6) {
   const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
   let out = "";
@@ -105,6 +107,12 @@ class PartyStore {
   joinParty(args: { partyId: string; userId: string; name: string; lockPassword?: string | null }) {
     const chk = this.canJoin(args.partyId, args.lockPassword ?? undefined);
     if (!chk.ok) throw new Error(chk.reason);
+
+    const cur = this.getParty(args.partyId);
+    if (!cur) throw new Error("NOT_FOUND");
+    const already = cur.members.some((m) => m.userId === args.userId);
+    if (!already && cur.members.length >= PARTY_MAX_MEMBERS) throw new Error("FULL");
+
     const p = this.ensureMember(args.partyId, args.userId, args.name);
     if (!p) throw new Error("NOT_FOUND");
     return p;
@@ -113,7 +121,9 @@ class PartyStore {
   rejoin(args: { partyId: string; userId: string; name: string }) {
     const p = this.getParty(args.partyId);
     if (!p) throw new Error("NOT_FOUND");
-    if (!p.members.some((m) => m.userId === args.userId)) {
+    const already = p.members.some((m) => m.userId === args.userId);
+    if (!already) {
+      if (p.members.length >= PARTY_MAX_MEMBERS) throw new Error("FULL");
       this.ensureMember(args.partyId, args.userId, args.name);
     }
     return this.getParty(args.partyId);

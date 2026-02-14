@@ -446,6 +446,18 @@ app.post("/api/party/transfer", (req, res) => {
 // socket ↔ user mapping (for queue cleanup on disconnect etc.)
 const socketToUserId = new Map<string, string>();
 
+function cleanupPartyMembership(userId: string) {
+  try {
+    const cur = QUEUE.get(userId);
+    const pid = cur?.partyId;
+    if (!pid) return;
+    STORE.leaveParty({ partyId: pid, userId });
+    broadcastParty(pid);
+  } catch {
+    // ignore
+  }
+}
+
 function requireSocketUser(socket: import("socket.io").Socket): DiscordUser | null {
   try {
     const cookieHeader = (socket.handshake.headers?.cookie ?? "") as string;
@@ -600,6 +612,7 @@ io.on("connection", (socket) => {
     const u = requireSocketUser(socket);
     const uid = u?.id ?? socketToUserId.get(socket.id);
     if (uid) {
+      cleanupPartyMembership(uid);
       QUEUE.leave(uid);
       socketToUserId.delete(socket.id);
     }
@@ -609,6 +622,7 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const uid = socketToUserId.get(socket.id);
     if (uid) {
+      cleanupPartyMembership(uid);
       QUEUE.leave(uid);
       socketToUserId.delete(socket.id);
     }

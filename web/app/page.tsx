@@ -414,18 +414,22 @@ export default function Page() {
     const code = joinCode.trim();
     if (!code) return;
     try {
+      const sid = getSid();
       const res = await fetch("/api/party/join", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          "X-Session-Id": getSid(),
+          ...(sid ? { "x-ml-session": sid } : {}),
         },
-        body: JSON.stringify({ partyId: code, password: joinPassword.trim() || undefined }),
+        body: JSON.stringify({ partyId: code, lockPassword: joinPassword.trim() || undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      setPartyId(data.partyId);
-      safeLocalSet("mlq.partyId", data.partyId);
+      const pid = String(data?.party?.id ?? "");
+      if (!pid) throw new Error("INVALID_RESPONSE");
+      setPartyId(pid);
+      safeLocalSet("mlq.partyId", pid);
       setJoinPassword("");
       setJoinCode("");
     } catch (e: any) {
@@ -437,15 +441,22 @@ export default function Page() {
     if (!partyId) return;
     try {
       setToast(null);
+      const sid = getSid();
       const res = await fetch(`${API}/api/party/join`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sid ? { "x-ml-session": sid } : {}),
+        },
         body: JSON.stringify({ partyId, lockPassword: lockPassword || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "파티 참가 실패");
-      setPartyId(data.partyId);
-      safeLocalSet("mlq.partyId", data.partyId);
+      const pid = String(data?.party?.id ?? "");
+      if (!pid) throw new Error("INVALID_RESPONSE");
+      setPartyId(pid);
+      safeLocalSet("mlq.partyId", pid);
       setToast({ type: "ok", msg: "파티에 참가했습니다." });
     } catch (e: any) {
       setToast({ type: "err", msg: e?.message || "파티 참가 실패" });
@@ -454,7 +465,7 @@ export default function Page() {
 
   const joinFromList = async (p: any) => {
     if (!p?.id) return;
-    if (p.locked) {
+    if (p.isLocked) {
       const pw = window.prompt("이 파티는 잠금 상태입니다. 비밀번호를 입력하세요.");
       if (pw === null) return;
       await joinPartyDirect(p.id, pw);
@@ -481,18 +492,22 @@ export default function Page() {
         alert("비밀번호는 2글자 이상으로 설정해줘.");
         return;
       }
+      const sid = getSid();
       const res = await fetch("/api/party", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
-          "X-Session-Id": getSid(),
+          ...(sid ? { "x-ml-session": sid } : {}),
         },
         body: JSON.stringify({ title, lockPassword: createLocked ? pw : undefined }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
-      setPartyId(data.partyId);
-      safeLocalSet("mlq.partyId", data.partyId);
+      const pid = String(data?.party?.id ?? "");
+      if (!pid) throw new Error("INVALID_RESPONSE");
+      setPartyId(pid);
+      safeLocalSet("mlq.partyId", pid);
       setCreateTitle("");
       setCreatePassword("");
       setCreateLocked(false);
@@ -532,7 +547,7 @@ export default function Page() {
     if (!sck) return;
     if (!isLeader) return;
     if (matchState !== "matched") return;
-    sck.emit("queue:setChannel", { letter: channelLetter, number: channelNum });
+    sck.emit("queue:setChannel", { letter: channelLetter, num: channelNum });
   }
 
   function onSelectGround(id: string) {
