@@ -252,7 +252,7 @@ export default function Page() {
 
   useEffect(() => {
     // restore last known party (best-effort). This only affects UI; membership is still server-side.
-    const saved = safeLocalGet("mlq.partyId") as string;
+    const saved = safeLocalGet<string>("mlq.partyId", "");
     if (saved && !partyId) setPartyId(saved);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
