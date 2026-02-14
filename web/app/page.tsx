@@ -1716,5 +1716,105 @@ export default function Page() {
         </div>
       </footer>
 
+      {/* 사냥터 추가/수정 (커스텀 사냥터 에디터) */}
+      {groundEditorOpen && groundDraft ? (
+        <div
+          style={modalOverlay}
+          onClick={() => {
+            setGroundEditorOpen(false);
+            setGroundDraft(null);
+          }}
+        >
+          <div
+            style={modalCard}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
+            <div style={modalTitle}>
+              <div style={{ fontWeight: 900 }}>
+                {groundDraft.id.startsWith("c_") ? "사냥터 편집" : "사냥터"}
+              </div>
+              <div style={muted}>커스텀 사냥터 정보</div>
+            </div>
 
-      {/* 사냥터 추가/수정 */}
+            <div style={{ padding: 14 }}>
+              <div style={formRow}>
+                <div style={label}>이름</div>
+                <input
+                  style={input}
+                  value={groundDraft.name}
+                  placeholder="예: 와일드보어의 땅"
+                  onChange={(e) => setGroundDraft({ ...groundDraft, name: e.target.value })}
+                />
+              </div>
+
+              <div style={formRow}>
+                <div style={label}>지역/맵</div>
+                <input
+                  style={input}
+                  value={groundDraft.area ?? ""}
+                  placeholder="예: 페리온"
+                  onChange={(e) => setGroundDraft({ ...groundDraft, area: e.target.value })}
+                />
+              </div>
+
+              <div style={formRow}>
+                <div style={label}>권장 레벨</div>
+                <input
+                  style={input}
+                  value={groundDraft.recommendedLevel ?? ""}
+                  placeholder="예: 35~45"
+                  onChange={(e) => setGroundDraft({ ...groundDraft, recommendedLevel: e.target.value })}
+                />
+              </div>
+
+              <div style={formRow}>
+                <div style={label}>태그 (쉼표로 구분)</div>
+                <input
+                  style={input}
+                  value={(groundDraft.tags ?? []).join(", ")}
+                  placeholder="예: 자리좋음, 2층, 리젠좋음"
+                  onChange={(e) =>
+                    setGroundDraft({
+                      ...groundDraft,
+                      tags: e.target.value
+                        .split(",")
+                        .map((x) => x.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                />
+              </div>
+
+              <div style={formRow}>
+                <div style={label}>메모</div>
+                <textarea
+                  style={{ ...input, minHeight: 90, resize: "vertical" as const }}
+                  value={groundDraft.note ?? ""}
+                  placeholder="추가 메모"
+                  onChange={(e) => setGroundDraft({ ...groundDraft, note: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
+                <button
+                  style={btn}
+                  onClick={() => {
+                    setGroundEditorOpen(false);
+                    setGroundDraft(null);
+                  }}
+                >
+                  취소
+                </button>
+                <button style={{ ...btnPrimary, padding: "10px 14px" }} onClick={saveGroundDraft}>
+                  저장
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
