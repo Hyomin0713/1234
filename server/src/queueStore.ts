@@ -63,36 +63,21 @@ function normNameKey(s: any) {
   return normStr(s, 64).toLowerCase();
 }
 
-function hasMutualBlock(a: QueueEntry, b: QueueEntry, resolveNameToId: (s: string) => string | null) {
-  const aIds = new Set<string>();
-  const bIds = new Set<string>();
-  const aNames = new Set<string>();
-  const bNames = new Set<string>();
+function blocks(a: QueueEntry, b: QueueEntry, resolveNameToId: (s: string) => string | null) {
+  const ids = new Set<string>();
+  const names = new Set<string>();
 
   for (const x of a.blacklist ?? []) {
     const raw = normStr(x, 64);
     if (!raw) continue;
     const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
-    if (id) aIds.add(id);
-    aNames.add(raw.toLowerCase());
-  }
-  for (const x of b.blacklist ?? []) {
-    const raw = normStr(x, 64);
-    if (!raw) continue;
-    const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
-    if (id) bIds.add(id);
-    bNames.add(raw.toLowerCase());
+    if (id) ids.add(id);
+    names.add(raw.toLowerCase());
   }
 
-
-  if (aIds.has(b.userId) || bIds.has(a.userId)) return true;
-
-  if (aNames.has(b.userId.toLowerCase()) || bNames.has(a.userId.toLowerCase())) return true;
-
-
-  const aName = normNameKey(a.displayName);
+  if (ids.has(b.userId)) return true;
   const bName = normNameKey(b.displayName);
-  if (aNames.has(bName) || bNames.has(aName)) return true;
+  if (names.has(bName)) return true;
 
   return false;
 }
@@ -199,7 +184,7 @@ export class QueueStore {
         const a = xs[i];
         const b = xs[j];
         if (a.userId === b.userId) continue;
-        if (hasMutualBlock(a, b, resolveNameToId)) continue;
+        if (blocks(a, b, resolveNameToId) || blocks(b, a, resolveNameToId)) continue;
 
 
         const matchId = randMatchId();
