@@ -52,6 +52,7 @@ export function BuffTable(props: {
   }, [party]);
 
   const myInParty = !!partyId && !!party && (party.members || []).some((m) => m.id === myId);
+  const canEdit = myInParty && !!rows.ownerId && rows.ownerId === myId;
 
   return (
     <div style={{ ...card, background: "rgba(255,255,255,0.04)" }}>
@@ -68,13 +69,13 @@ export function BuffTable(props: {
             color: "#e6e8ee",
             padding: "10px 12px",
             borderRadius: 10,
-            cursor: myInParty ? "pointer" : "not-allowed",
-            opacity: myInParty ? 1 : 0.45,
+            cursor: canEdit ? "pointer" : "not-allowed",
+            opacity: canEdit ? 1 : 0.45,
             fontWeight: 900,
           }}
-          disabled={!myInParty}
+          disabled={!canEdit}
         >
-          내 버프 저장
+          버프 저장
         </button>
       </div>
 
@@ -87,7 +88,7 @@ export function BuffTable(props: {
               onChange={(e) => onChangeMyBuffs({ ...myBuffs, simbi: Math.max(0, Math.min(6, Math.floor(Number(e.target.value) || 0))) })}
               style={{ ...input, width: "100%", boxSizing: "border-box" }}
               inputMode="numeric"
-              disabled={!myInParty}
+              disabled={!canEdit}
             />
           </label>
           <label style={{ display: "grid", gap: 6 }}>
@@ -97,7 +98,7 @@ export function BuffTable(props: {
               onChange={(e) => onChangeMyBuffs({ ...myBuffs, ppeongbi: Math.max(0, Math.min(6, Math.floor(Number(e.target.value) || 0))) })}
               style={{ ...input, width: "100%", boxSizing: "border-box" }}
               inputMode="numeric"
-              disabled={!myInParty}
+              disabled={!canEdit}
             />
           </label>
           <label style={{ display: "grid", gap: 6 }}>
@@ -107,7 +108,7 @@ export function BuffTable(props: {
               onChange={(e) => onChangeMyBuffs({ ...myBuffs, syapbi: Math.max(0, Math.min(6, Math.floor(Number(e.target.value) || 0))) })}
               style={{ ...input, width: "100%", boxSizing: "border-box" }}
               inputMode="numeric"
-              disabled={!myInParty}
+              disabled={!canEdit}
             />
           </label>
         </div>

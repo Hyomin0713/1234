@@ -639,6 +639,13 @@ io.on("connection", (socket) => {
     const displayName = (u.global_name ?? u.username) || u.username;
     USERS.upsert(u.id, { displayName, level: Number(p?.level ?? 1), job: p?.job ?? "전사", power: Number(p?.power ?? 0), blacklist: Array.isArray(p?.blacklist) ? p.blacklist : [] });
 
+    const requestedPartyId = String(p?.partyId ?? "").trim();
+    let partyId: string | undefined = undefined;
+    if (requestedPartyId) {
+      const party = STORE.getParty(requestedPartyId);
+      if (party && party.ownerId === u.id) partyId = party.id;
+    }
+
     const up = QUEUE.upsert(socket.id, huntingGroundId, {
       userId: u.id,
       displayName,
@@ -646,6 +653,7 @@ io.on("connection", (socket) => {
       job: p?.job ?? "전사",
       power: Number(p?.power ?? 0),
       blacklist: Array.isArray(p?.blacklist) ? p.blacklist : [],
+      partyId,
     } as any);
 
     if (!up.ok) return;
@@ -663,18 +671,22 @@ io.on("connection", (socket) => {
         const otherEntry = leaderEntry === matched.a ? matched.b : matched.a;
 
 
-        const party = STORE.createParty({
-          ownerId: leaderId,
-          ownerName: leaderEntry.displayName,
-          ownerLevel: Number(leaderEntry.level ?? 1),
-          ownerJob: (leaderEntry.job as any) ?? "전사",
-          ownerPower: Number(leaderEntry.power ?? 0),
-          title: `사냥터 ${huntingGroundId}`,
-          groundId: huntingGroundId,
-          groundName: `사냥터 ${huntingGroundId}`,
-          lockPassword: null
-        });
-        const partyId = party.id;
+        let partyId = String((leaderEntry as any).partyId ?? "").trim();
+        let party = partyId ? STORE.getParty(partyId) : null;
+        if (!party || party.ownerId !== leaderId || (party.members?.length ?? 0) >= 6) {
+          party = STORE.createParty({
+            ownerId: leaderId,
+            ownerName: leaderEntry.displayName,
+            ownerLevel: Number(leaderEntry.level ?? 1),
+            ownerJob: (leaderEntry.job as any) ?? "전사",
+            ownerPower: Number(leaderEntry.power ?? 0),
+            title: `사냥터 ${huntingGroundId}`,
+            groundId: huntingGroundId,
+            groundName: `사냥터 ${huntingGroundId}`,
+            lockPassword: null
+          });
+          partyId = party.id;
+        }
 
         STORE.joinParty({
           partyId,

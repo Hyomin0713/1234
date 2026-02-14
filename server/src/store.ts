@@ -240,6 +240,9 @@ class PartyStore {
   }
 
   updateBuffs(args: { partyId: string; userId: string; buffs: Partial<Buffs> }) {
+    const p = this.getParty(args.partyId);
+    if (!p) throw new Error("NOT_FOUND");
+    if (p.ownerId !== args.userId) throw new Error("NOT_OWNER");
     const out = this.setBuffs(args.partyId, args.userId, args.buffs);
     if (!out) throw new Error("NOT_FOUND");
     return out;

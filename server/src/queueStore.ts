@@ -8,6 +8,7 @@ export type QueueProfile = {
   power: number;
 
   blacklist: string[];
+  partyId?: string;
 };
 
 export type QueueEntry = QueueProfile & {
@@ -113,6 +114,7 @@ export class QueueStore {
   }
 
   upsert(socketId: string, huntingGroundId: string | null, profile: Partial<QueueProfile>) {
+    const pid = normStr((profile as any).partyId ?? "", 64);
     const userId = normStr(profile.userId ?? "", 64);
     if (!userId) return { ok: false as const, error: "missing_user" };
 
@@ -131,7 +133,7 @@ export class QueueStore {
       huntingGroundId: hg,
       state: "searching",
       searchingSince: Date.now(),
-      partyId: undefined,
+      partyId: pid || undefined,
       updatedAt: Date.now()
     };
     this.byUserId.set(userId, next);

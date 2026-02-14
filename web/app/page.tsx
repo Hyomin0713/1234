@@ -581,7 +581,38 @@ export default function Page() {
       alert(`파티 생성 실패: ${e?.message ?? e}`);
     }
   };
-  const joinQueue = () => {
+
+  const createPublicPartyAndJoinQueue = async () => {
+    if (!isLoggedIn) {
+      setToast({ type: "err", msg: "디스코드 로그인이 필요합니다." });
+      return;
+    }
+    try {
+      const title = selected?.name ? `${selected.name} 공개 파티` : "공개 파티";
+      const sid = getSid();
+      const res = await fetch("/api/party", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sid ? { "x-ml-session": sid } : {}),
+        },
+        body: JSON.stringify({ title, groundId: selectedId || undefined, groundName: selected?.name || undefined }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      const pid = String(data?.party?.id ?? "");
+      if (!pid) throw new Error("INVALID_RESPONSE");
+      setPartyId(pid);
+      safeLocalSet("mlq.partyId", pid);
+      setToast({ type: "ok", msg: "공개 파티를 만들었습니다." });
+      refreshParties();
+      joinQueue({ partyId: pid });
+    } catch (e: any) {
+      setToast({ type: "err", msg: e?.message || "공개 파티 생성 실패" });
+    }
+  };
+  const joinQueue = (opts?: { partyId?: string | null }) => {
     const sck = socketRef.current;
     if (!sck) return;
     setMatchState("searching");
@@ -595,6 +626,7 @@ export default function Page() {
       job,
       power,
       blacklist,
+      partyId: opts?.partyId ?? partyId ?? null,
     });
   };
 
@@ -836,7 +868,7 @@ export default function Page() {
       <section style={{ ...card, gridColumn: "3", gridRow: "1", display: "flex", flexDirection: "column" }}>
         <div style={{ ...cardHeader, alignItems: "flex-start" }}>
           <div style={{ display: "grid", gap: 2 }}>
-            <div style={{ fontWeight: 800 }}>큐 정보</div>
+            <div style={{ fontWeight: 800 }}>파티 정보</div>
 </div>
           <div style={{ ...muted, marginLeft: "auto" }}>
             {matchState === "idle"
@@ -1441,7 +1473,7 @@ export default function Page() {
                 이 사냥터로 큐 참가
               </button>
               <button
-                onClick={() => alert("추후: 사냥터 등록/수정 UI")}
+                onClick={() => createPublicPartyAndJoinQueue()}
                 style={{
                   border: "1px solid rgba(255,255,255,0.14)",
                   background: "rgba(255,255,255,0.06)",
@@ -1452,7 +1484,7 @@ export default function Page() {
                   fontWeight: 900,
                 }}
               >
-                사냥터 추가(예정)
+                공개 파티 만들기
               </button>
             </div>
           </div>
@@ -1645,8 +1677,16 @@ export default function Page() {
               레벨/직업/스공은 <b>큐 참가</b>와 <b>파티 멤버 정보</b>에 표시돼요.
             </div>
 
-            <div style={formGrid}>
-              <div style={formRow}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 12,
+                marginTop: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ ...formRow, gridColumn: "1 / -1" }}>
                 <div style={label}>닉네임</div>
                 <input
                   style={input}
@@ -1677,7 +1717,7 @@ export default function Page() {
                 </select>
               </div>
 
-              <div style={formRow}>
+              <div style={{ ...formRow, gridColumn: "1 / -1" }}>
                 <div style={label}>스공</div>
                 <input
                   style={input}
