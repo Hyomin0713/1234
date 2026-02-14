@@ -1513,7 +1513,7 @@ export default function Page() {
       </main>
 
       {}
-      <aside style={{ ...card, gridColumn: "3", gridRow: "2" }}>
+      <aside style={{ ...card, background: "rgb(12,16,24)", gridColumn: "3", gridRow: "2" }}>
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>광고 영역</div>
           <div style={muted}>5번</div>
@@ -1524,7 +1524,7 @@ export default function Page() {
               height: "calc(100vh - 72px - 140px - 14px*4)",
               borderRadius: 14,
               border: "1px dashed rgba(255,255,255,0.18)",
-              background: "rgba(0,0,0,0.20)",
+              background: "rgb(10,14,22)",
               display: "grid",
               placeItems: "center",
               color: "rgba(230,232,238,0.65)",
@@ -1542,7 +1542,7 @@ export default function Page() {
       </aside>
 
       {}
-      <footer style={{ ...card, gridColumn: "2 / span 2", gridRow: "3" }}>
+      <footer style={{ ...card, background: "rgb(12,16,24)", gridColumn: "2 / span 2", gridRow: "3" }}>
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>광고 영역</div>
           <div style={muted}>6번</div>
@@ -1553,7 +1553,7 @@ export default function Page() {
               height: 72,
               borderRadius: 14,
               border: "1px dashed rgba(255,255,255,0.18)",
-              background: "rgba(0,0,0,0.20)",
+              background: "rgb(10,14,22)",
               display: "grid",
               placeItems: "center",
               color: "rgba(230,232,238,0.65)",
