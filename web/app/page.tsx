@@ -885,7 +885,8 @@ export default function Page() {
       />
 
       {}
-      <section style={{ ...card, gridColumn: "3", gridRow: "1 / span 2", display: "flex", flexDirection: "column" }}>
+            <aside style={{ gridColumn: "3", gridRow: "1 / span 3", display: "flex", flexDirection: "column", gap: 12 }}>
+<section style={{ ...card, display: "flex", flexDirection: "column", overflow: "hidden", minHeight: 360, flex: "0 0 auto", maxHeight: "62vh" }}>
         <div style={{ ...cardHeader, alignItems: "flex-start" }}>
           <div style={{ display: "grid", gap: 2 }}>
             <div style={{ fontWeight: 800 }}>파티 정보</div>
@@ -1386,6 +1387,36 @@ export default function Page() {
         </div>
       </section>
 
+        <div style={{ ...card, background: "rgb(12,16,24)", flex: "1 1 auto", minHeight: 240, display: "flex", flexDirection: "column" }}>
+                <div style={cardHeader}>
+                  <div style={{ fontWeight: 800 }}>광고 영역</div>
+                  <div style={muted}>5번</div>
+                </div>
+                <div style={{ padding: 14, flex: 1, minHeight: 0 }}>
+                  <div
+                    style={{
+                      height: "100%",
+                      borderRadius: 14,
+                      border: "1px dashed rgba(255,255,255,0.18)",
+                      background: "rgb(10,14,22)",
+                      display: "grid",
+                      placeItems: "center",
+                      color: "rgba(230,232,238,0.65)",
+                      textAlign: "center",
+                      padding: 14,
+                      boxSizing: "border-box",
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 900, marginBottom: 6 }}>AD</div>
+                      <div style={muted}>여기에 광고/후원 배너</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+      </aside>
+
+
       {}
       <main style={{ ...card, gridColumn: "2", gridRow: "2", display: "grid", gridTemplateColumns: "420px 1fr" }}>
         {}
@@ -1513,41 +1544,13 @@ export default function Page() {
       </main>
 
       {}
-      <aside style={{ ...card, background: "rgb(12,16,24)", gridColumn: "3", gridRow: "2" }}>
-        <div style={cardHeader}>
-          <div style={{ fontWeight: 800 }}>광고 영역</div>
-          <div style={muted}>5번</div>
-        </div>
-        <div style={{ padding: 14 }}>
-          <div
-            style={{
-              height: "calc(100vh - 72px - 140px - 14px*4)",
-              borderRadius: 14,
-              border: "1px dashed rgba(255,255,255,0.18)",
-              background: "rgb(10,14,22)",
-              display: "grid",
-              placeItems: "center",
-              color: "rgba(230,232,238,0.65)",
-              textAlign: "center",
-              padding: 14,
-              boxSizing: "border-box",
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 900, marginBottom: 6 }}>AD</div>
-              <div style={muted}>여기에 광고/후원 배너</div>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      {}
+      <asi    {}
       <footer style={{ ...card, background: "rgb(12,16,24)", gridColumn: "2 / span 2", gridRow: "3" }}>
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>광고 영역</div>
           <div style={muted}>6번</div>
         </div>
-        <div style={{ padding: 14 }}>
+        <div style={{ padding: 14, flex: 1, minHeight: 0 }}>
           <div
             style={{
               height: 72,
