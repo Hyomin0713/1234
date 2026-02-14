@@ -122,7 +122,8 @@ class PartyStore {
   }
 
 
-  joinParty(args: { partyId: string; userId: string; name: string; lockPassword?: string | null }) {
+  // groundId/groundName are accepted for forward-compatibility (some clients send them) but are not required to join.
+  joinParty(args: { partyId: string; userId: string; name: string; lockPassword?: string | null; groundId?: string | null; groundName?: string | null }) {
     const chk = this.canJoin(args.partyId, args.lockPassword ?? undefined);
     if (!chk.ok) throw new Error(chk.reason);
 

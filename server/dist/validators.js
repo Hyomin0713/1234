@@ -12,8 +12,8 @@ export const createPartySchema = obj((v) => {
     if (!title)
         throw new Error("TITLE_REQUIRED");
     const lockPassword = v.lockPassword == null ? null : String(v.lockPassword);
-  const groundId = v.groundId == null ? null : String(v.groundId).trim().slice(0, 64);
-  const groundName = v.groundName == null ? null : String(v.groundName).trim().slice(0, 64);
+    const groundId = v.groundId == null ? null : String(v.groundId).trim().slice(0, 64);
+    const groundName = v.groundName == null ? null : String(v.groundName).trim().slice(0, 64);
     return { title, lockPassword, groundId, groundName };
 });
 export const joinPartySchema = obj((v) => {
@@ -23,9 +23,9 @@ export const joinPartySchema = obj((v) => {
     if (!partyId)
         throw new Error("PARTY_ID_REQUIRED");
     const lockPassword = v.lockPassword == null ? null : String(v.lockPassword);
-  const groundId = v.groundId == null ? null : String(v.groundId).trim().slice(0, 64);
-  const groundName = v.groundName == null ? null : String(v.groundName).trim().slice(0, 64);
-    return { partyId, lockPassword };
+    const groundId = v.groundId == null ? null : String(v.groundId).trim().slice(0, 64);
+    const groundName = v.groundName == null ? null : String(v.groundName).trim().slice(0, 64);
+    return { partyId, lockPassword, groundId, groundName };
 });
 export const rejoinSchema = obj((v) => {
     if (!v || typeof v !== "object")

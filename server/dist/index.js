@@ -40,8 +40,8 @@ import { createPartySchema, joinPartySchema, rejoinSchema, buffsSchema, updateMe
 import { cleanupSessions, cookieSerialize, deleteSession, getSession, newSession, parseCookies } from "./auth.js";
 const PORT = Number(process.env.PORT ?? 8000);
 // Party keep-alive / TTL
-const MEMBER_TTL_MS = Number(process.env.MEMBER_TTL_MS ?? 70000);
-const PARTY_TTL_MS = Number(process.env.PARTY_TTL_MS ?? 10 * 60000);
+const MEMBER_TTL_MS = Number(process.env.MEMBER_TTL_MS ?? 70_000); // member heartbeat window
+const PARTY_TTL_MS = Number(process.env.PARTY_TTL_MS ?? 10 * 60_000); // auto-disband if whole party is idle
 // ✅ one-domain deployment: ORIGIN=PUBLIC_URL (Railway) or your custom domain
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? process.env.ORIGIN ?? `http://localhost:${PORT}`).trim();
 const ORIGIN_RAW = (process.env.ORIGIN ?? PUBLIC_URL).trim();
@@ -293,8 +293,8 @@ app.post("/api/party", (req, res) => {
             ownerId: auth.user.id,
             ownerName: auth.user.global_name ?? auth.user.username,
             lockPassword: body.lockPassword ?? null,
-      groundId: body.groundId ?? null,
-      groundName: body.groundName ?? null
+            groundId: body.groundId ?? null,
+            groundName: body.groundName ?? null
         });
         broadcastParties();
         res.json({ party });
@@ -314,8 +314,8 @@ app.post("/api/party/join", (req, res) => {
             userId: auth.user.id,
             name: auth.user.global_name ?? auth.user.username,
             lockPassword: body.lockPassword ?? null,
-      groundId: body.groundId ?? null,
-      groundName: body.groundName ?? null
+            groundId: body.groundId ?? null,
+            groundName: body.groundName ?? null
         });
         broadcastParty(body.partyId);
         res.json({ party });
@@ -436,7 +436,6 @@ app.post("/api/party/transfer", (req, res) => {
 /** ---------------- Socket.IO ---------------- */
 // socket ↔ user mapping (for queue cleanup on disconnect etc.)
 const socketToUserId = new Map();
-
 function cleanupPartyMembership(userId) {
     try {
         const cur = QUEUE.get(userId);
@@ -445,6 +444,9 @@ function cleanupPartyMembership(userId) {
             return;
         const before = STORE.getParty(pid);
         const out = STORE.leaveParty({ partyId: pid, userId });
+        // Auto-disband policy (minimal & safe):
+        // If this party looks like an auto-created matchmaking party and drops below 2 members,
+        // remove it to avoid lingering "ghost" parties.
         const p = out ?? STORE.getParty(pid);
         const wasAuto = !!before?.title?.startsWith("사냥터 ");
         if (wasAuto && p && p.members.length < 2) {
@@ -497,10 +499,10 @@ io.on("connection", (socket) => {
             return;
         const p = STORE.touchMember(String(partyId), u.id);
         if (p) {
+            // lightweight: only broadcast occasionally via existing timers
             broadcastParty(String(partyId));
         }
     });
-
     // --- queue matchmaking ---
     function ensureLoggedIn() {
         const u = requireSocketUser(socket);
@@ -536,6 +538,7 @@ io.on("connection", (socket) => {
             return;
         socketToUserId.set(socket.id, u.id);
         emitQueueStatus(u.id);
+        // Send current counts on hello so UI immediately has numbers.
         socket.emit("queue:counts", { counts: QUEUE.getCountsByGround() });
     });
     socket.on("queue:updateProfile", (p) => {
@@ -580,6 +583,8 @@ io.on("connection", (socket) => {
                     ownerId: leaderId,
                     ownerName: leaderEntry.displayName,
                     title: `사냥터 ${huntingGroundId}`,
+                    groundId: huntingGroundId,
+                    groundName: `사냥터 ${huntingGroundId}`,
                     lockPassword: null
                 });
                 const partyId = party.id;
@@ -640,12 +645,12 @@ io.on("connection", (socket) => {
         broadcastQueueCounts();
     });
 });
-
 // Party TTL / member TTL sweep + queue cleanup for dangling partyIds
 setInterval(() => {
     try {
         const changedPartyIds = STORE.sweepStaleMembers({ memberTtlMs: MEMBER_TTL_MS, partyTtlMs: PARTY_TTL_MS });
         if (changedPartyIds.length) {
+            // notify rooms about deleted parties (best-effort)
             for (const pid of changedPartyIds) {
                 if (!STORE.getParty(pid)) {
                     io.to(pid).emit("partyDeleted", { partyId: pid });
@@ -653,9 +658,11 @@ setInterval(() => {
             }
             broadcastParties();
         }
+        // If a party was deleted, clear any queue entries that still reference it.
         const cleaned = QUEUE.cleanupDanglingParties((pid) => !!STORE.getParty(pid));
         if (cleaned.length) {
             for (const e of cleaned) {
+                // If user is connected, nudge their UI back to idle.
                 io.to(e.socketId).emit("queue:status", { state: "idle" });
             }
             broadcastQueueCounts();
@@ -664,7 +671,7 @@ setInterval(() => {
     catch {
         // ignore
     }
-}, 15000).unref();
+}, 15_000).unref();
 // Serve static web build (Next export output)
 const webOut = path.resolve(process.cwd(), "../web/out");
 if (fs.existsSync(webOut)) {

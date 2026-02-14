@@ -113,6 +113,7 @@ export class QueueStore {
     }
     /**
      * Return counts of active queue entries (searching+matched) grouped by huntingGroundId.
+     * Useful for UI to show "현재 큐 n명".
      */
     getCountsByGround() {
         const counts = {};
@@ -183,7 +184,6 @@ export class QueueStore {
         }
         return { ok: true, matchId, channel: ch, members };
     }
-
     /**
      * Clear queue entries that reference parties that no longer exist.
      * This prevents clients from being stuck with a stale partyId after TTL/disband.

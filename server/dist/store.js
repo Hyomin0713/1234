@@ -1,3 +1,16 @@
+const PARTY_MAX_MEMBERS = 6;
+function pickNextOwnerId(members) {
+    if (!members.length)
+        return "";
+    const sorted = [...members].sort((a, b) => {
+        const as = a.lastSeenAt ?? a.joinedAt;
+        const bs = b.lastSeenAt ?? b.joinedAt;
+        if (bs !== as)
+            return bs - as;
+        return (a.joinedAt ?? 0) - (b.joinedAt ?? 0);
+    });
+    return sorted[0]?.userId ?? "";
+}
 function randCode(len = 6) {
     const chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     let out = "";
@@ -11,19 +24,6 @@ function hash(pw) {
     for (let i = 0; i < pw.length; i++)
         h = (h * 31 + pw.charCodeAt(i)) >>> 0;
     return String(h);
-
-function pickNextOwnerId(members) {
-    if (!members.length)
-        return "";
-    const sorted = [...members].sort((a, b) => {
-        const as = (a.lastSeenAt ?? a.joinedAt);
-        const bs = (b.lastSeenAt ?? b.joinedAt);
-        if (bs !== as)
-            return bs - as;
-        return (a.joinedAt ?? 0) - (b.joinedAt ?? 0);
-    });
-    return (sorted[0]?.userId) ?? "";
-}
 }
 class PartyStore {
     parties = new Map();
@@ -36,6 +36,8 @@ class PartyStore {
             id,
             title: args.title.trim() || "파티",
             ownerId: args.ownerId,
+            groundId: (args.groundId ?? null),
+            groundName: (args.groundName ?? null),
             isLocked: false,
             lockPasswordHash: null,
             members: [
@@ -56,6 +58,8 @@ class PartyStore {
             id: p.id,
             title: p.title,
             ownerId: p.ownerId,
+            groundId: p.groundId,
+            groundName: p.groundName,
             isLocked: p.isLocked,
             memberCount: p.members.length,
             updatedAt: p.updatedAt
@@ -92,10 +96,17 @@ class PartyStore {
         }
         return p;
     }
+    // groundId/groundName are accepted for forward-compatibility (some clients send them) but are not required to join.
     joinParty(args) {
         const chk = this.canJoin(args.partyId, args.lockPassword ?? undefined);
         if (!chk.ok)
             throw new Error(chk.reason);
+        const cur = this.getParty(args.partyId);
+        if (!cur)
+            throw new Error("NOT_FOUND");
+        const already = cur.members.some((m) => m.userId === args.userId);
+        if (!already && cur.members.length >= PARTY_MAX_MEMBERS)
+            throw new Error("FULL");
         const p = this.ensureMember(args.partyId, args.userId, args.name);
         if (!p)
             throw new Error("NOT_FOUND");
@@ -105,7 +116,10 @@ class PartyStore {
         const p = this.getParty(args.partyId);
         if (!p)
             throw new Error("NOT_FOUND");
-        if (!p.members.some((m) => m.userId === args.userId)) {
+        const already = p.members.some((m) => m.userId === args.userId);
+        if (!already) {
+            if (p.members.length >= PARTY_MAX_MEMBERS)
+                throw new Error("FULL");
             this.ensureMember(args.partyId, args.userId, args.name);
         }
         return this.getParty(args.partyId);
@@ -221,7 +235,6 @@ class PartyStore {
         p.updatedAt = Date.now();
         return p;
     }
-    
     touchMember(partyId, userId) {
         const p = this.parties.get(partyId);
         if (!p)
@@ -238,7 +251,8 @@ class PartyStore {
         const now = Date.now();
         const changed = new Set();
         for (const [partyId, p] of this.parties.entries()) {
-            const newestSeen = p.members.reduce((mx, m) => Math.max(mx, (m.lastSeenAt ?? m.joinedAt)), 0);
+            // party-level TTL: if no member has been seen within partyTtlMs, drop the party
+            const newestSeen = p.members.reduce((mx, m) => Math.max(mx, m.lastSeenAt ?? m.joinedAt), 0);
             if (now - newestSeen > opts.partyTtlMs) {
                 this.parties.delete(partyId);
                 changed.add(partyId);
@@ -247,6 +261,7 @@ class PartyStore {
             const before = p.members.length;
             p.members = p.members.filter((m) => now - (m.lastSeenAt ?? m.joinedAt) <= opts.memberTtlMs);
             if (p.members.length !== before) {
+                // owner delegation if owner got removed
                 if (!p.members.some((m) => m.userId === p.ownerId)) {
                     p.ownerId = pickNextOwnerId(p.members);
                 }
@@ -262,8 +277,7 @@ class PartyStore {
         }
         return Array.from(changed);
     }
-
-canJoin(partyId, password) {
+    canJoin(partyId, password) {
         const p = this.parties.get(partyId);
         if (!p)
             return { ok: false, reason: "NOT_FOUND" };
