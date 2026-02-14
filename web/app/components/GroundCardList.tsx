@@ -28,18 +28,7 @@ export function GroundCardList(props: {
     <section style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
       <div style={cardHeader}>
         <div style={{ fontWeight: 900 }}>사냥터</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={openNewGround} style={btn}>
-            추가
-          </button>
-          <button onClick={openEditGround} style={{ ...btn, opacity: isCustomSelected ? 1 : 0.45, pointerEvents: isCustomSelected ? "auto" : "none" }}>
-            수정
-          </button>
-          <button onClick={deleteSelectedGround} style={{ ...btn, opacity: isCustomSelected ? 1 : 0.45, pointerEvents: isCustomSelected ? "auto" : "none" }}>
-            삭제
-          </button>
-        </div>
-      </div>
+</div>
       <div style={{ padding: 12, display: "grid", gap: 10 }}>
         {filtered.map((g) => {
           const active = g.id === selectedId;

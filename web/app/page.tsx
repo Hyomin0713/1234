@@ -843,8 +843,7 @@ export default function Page() {
         <div style={{ ...cardHeader, alignItems: "flex-start" }}>
           <div style={{ display: "grid", gap: 2 }}>
             <div style={{ fontWeight: 800 }}>큐 정보</div>
-            <div style={{ fontSize: 12, opacity: 0.75 }}>레벨/직업/스공/블랙리스트가 매칭 조건에 반영됩니다.</div>
-          </div>
+</div>
           <div style={{ ...muted, marginLeft: "auto" }}>
             {matchState === "idle"
               ? "대기"
@@ -1428,11 +1427,7 @@ export default function Page() {
                 input={input}
               />
               <div style={{ ...card, background: "rgba(255,255,255,0.04)" }}>
-                <div style={{ padding: 14 }}>
-                  <div style={{ fontWeight: 900, marginBottom: 6 }}>파티 유지 (예정)</div>
-                  <div style={muted}>새로고침 후 재입장 유지 + 멤버 실시간 반영 (다음 단계)</div>
-                </div>
-              </div>
+</div>
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>

@@ -85,7 +85,7 @@ export function BuffTable(props: {
             <input
               value={String(myBuffs.simbi)}
               onChange={(e) => onChangeMyBuffs({ ...myBuffs, simbi: Math.max(0, Math.min(6, Math.floor(Number(e.target.value) || 0))) })}
-              style={input}
+              style={{ ...input, width: "100%", boxSizing: "border-box" }}
               inputMode="numeric"
               disabled={!myInParty}
             />
@@ -95,7 +95,7 @@ export function BuffTable(props: {
             <input
               value={String(myBuffs.ppeongbi)}
               onChange={(e) => onChangeMyBuffs({ ...myBuffs, ppeongbi: Math.max(0, Math.min(6, Math.floor(Number(e.target.value) || 0))) })}
-              style={input}
+              style={{ ...input, width: "100%", boxSizing: "border-box" }}
               inputMode="numeric"
               disabled={!myInParty}
             />
@@ -105,7 +105,7 @@ export function BuffTable(props: {
             <input
               value={String(myBuffs.syapbi)}
               onChange={(e) => onChangeMyBuffs({ ...myBuffs, syapbi: Math.max(0, Math.min(6, Math.floor(Number(e.target.value) || 0))) })}
-              style={input}
+              style={{ ...input, width: "100%", boxSizing: "border-box" }}
               inputMode="numeric"
               disabled={!myInParty}
             />

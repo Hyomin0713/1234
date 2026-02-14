@@ -118,11 +118,6 @@ export function DiscordAside({
           </>
         )}
       </div>
-
-      <div style={{ padding: 14, borderTop: "1px solid rgba(255,255,255,0.08)", marginTop: "auto" }}>
-        <div style={{ fontWeight: 800, marginBottom: 8 }}>가이드</div>
-        <div style={muted}>2번 검색 → 3번 리스트에서 사냥터 선택 → 7번 정보 입력 → 큐 참가 → 매칭완료 채널 표시</div>
-      </div>
-    </aside>
+</aside>
   );
 }
