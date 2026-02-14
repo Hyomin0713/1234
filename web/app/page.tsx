@@ -523,7 +523,7 @@ export default function Page() {
     try {
       setToast(null);
       const sid = getSid();
-      const res = await fetch(`${API}/api/party/join`, {
+      const res = await fetch("/api/party/join", {
         method: "POST",
         credentials: "include",
         headers: {
@@ -557,7 +557,7 @@ export default function Page() {
 
   const refreshParties = async () => {
     try {
-      const res = await fetch(`${API}/api/parties`);
+      const res = await fetch("/api/parties");
       const data = await res.json();
       if (data?.parties) setPartyList(data.parties);
     } catch {
