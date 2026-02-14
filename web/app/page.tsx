@@ -138,6 +138,34 @@ export default function Page() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(GROUNDS[0]?.id ?? "");
 
+  // 사용자 커스텀 사냥터(로컬 저장) — 나중에 사용자가 직접 추가/수정 가능
+  const [customGrounds, setCustomGrounds] = useState<HuntingGround[]>([]);
+  const [groundEditorOpen, setGroundEditorOpen] = useState(false);
+  const [groundDraft, setGroundDraft] = useState<HuntingGround | null>(null);
+
+  useEffect(() => {
+    const saved = safeLocalGet("mlq.grounds.custom", [] as any);
+    if (Array.isArray(saved)) {
+      const cleaned: HuntingGround[] = saved
+        .filter((x: any) => x && typeof x.id === "string" && typeof x.name === "string")
+        .map((x: any) => ({
+          id: String(x.id),
+          name: String(x.name),
+          area: String(x.area ?? ""),
+          recommendedLevel: String(x.recommendedLevel ?? ""),
+          tags: Array.isArray(x.tags) ? x.tags.map((t: any) => String(t)) : [],
+          note: String(x.note ?? ""),
+        }));
+      setCustomGrounds(cleaned);
+    }
+  }, []);
+
+  useEffect(() => {
+    safeLocalSet("mlq.grounds.custom", customGrounds);
+  }, [customGrounds]);
+
+  const ALL_GROUNDS = useMemo(() => [...GROUNDS, ...customGrounds], [customGrounds]);
+
   // 7) 큐 정보
   const [level, setLevel] = useState(50);
   const [job, setJob] = useState<Job>("전사");
@@ -185,17 +213,66 @@ export default function Page() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return GROUNDS;
-    return GROUNDS.filter((g) => {
+    if (!q) return ALL_GROUNDS;
+    return ALL_GROUNDS.filter((g) => {
       const blob = `${g.name} ${g.area} ${g.recommendedLevel} ${g.tags.join(" ")} ${g.note}`.toLowerCase();
       return blob.includes(q);
     });
-  }, [query]);
+  }, [query, ALL_GROUNDS]);
 
   const selected = useMemo(
-    () => GROUNDS.find((g) => g.id === selectedId) ?? filtered[0] ?? GROUNDS[0],
-    [selectedId, filtered]
+    () => ALL_GROUNDS.find((g) => g.id === selectedId) ?? filtered[0] ?? ALL_GROUNDS[0],
+    [selectedId, filtered, ALL_GROUNDS]
   );
+
+  const isCustomSelected = useMemo(() => selectedId.startsWith("c_"), [selectedId]);
+
+  const openNewGround = () => {
+    const id = `c_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setGroundDraft({ id, name: "", area: "", recommendedLevel: "", tags: [], note: "" });
+    setGroundEditorOpen(true);
+  };
+
+  const openEditGround = () => {
+    const g = customGrounds.find((x) => x.id === selectedId);
+    if (!g) return;
+    setGroundDraft({ ...g, tags: [...(g.tags ?? [])] });
+    setGroundEditorOpen(true);
+  };
+
+  const saveGroundDraft = () => {
+    if (!groundDraft) return;
+    const name = groundDraft.name.trim();
+    if (!name) return;
+    const cleaned: HuntingGround = {
+      ...groundDraft,
+      name,
+      area: (groundDraft.area ?? "").trim(),
+      recommendedLevel: (groundDraft.recommendedLevel ?? "").trim(),
+      tags: (groundDraft.tags ?? []).map((t) => t.trim()).filter(Boolean),
+      note: (groundDraft.note ?? "").trim(),
+    };
+    setCustomGrounds((prev) => {
+      const idx = prev.findIndex((x) => x.id === cleaned.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = cleaned;
+        return next;
+      }
+      return [cleaned, ...prev];
+    });
+    setSelectedId(cleaned.id);
+    setGroundEditorOpen(false);
+    setGroundDraft(null);
+  };
+
+  const deleteSelectedGround = () => {
+    if (!isCustomSelected) return;
+    setCustomGrounds((prev) => prev.filter((x) => x.id !== selectedId));
+    // move selection to first item
+    const next = GROUNDS[0]?.id ?? "";
+    setSelectedId(next);
+  };
 
 
   // --- persist & realtime queue (socket) ---
@@ -543,6 +620,40 @@ export default function Page() {
     fontSize: 13,
     boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
   };
+
+  const modalOverlay: React.CSSProperties = {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.62)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 18,
+    zIndex: 50,
+  };
+
+  const modalCard: React.CSSProperties = {
+    width: "min(720px, 100%)",
+    background: "rgba(14,18,30,0.98)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: 18,
+    boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+    padding: 16,
+  };
+
+  const modalTitle: React.CSSProperties = {
+    fontWeight: 900,
+    fontSize: 16,
+    marginBottom: 10,
+  };
+
+  const formRow: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+  };
+
+  const label: React.CSSProperties = { fontSize: 12, color: "rgba(230,232,238,0.75)", marginBottom: 6 };
 
 
   return (
@@ -1138,9 +1249,30 @@ export default function Page() {
       <main style={{ ...card, gridColumn: "2", gridRow: "2", display: "grid", gridTemplateColumns: "420px 1fr" }}>
         {/* 3) 리스트 */}
         <section style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
-          <div style={cardHeader}>
-            <div style={{ fontWeight: 800 }}>사냥터</div>
-            <div style={muted}>사냥터 카드</div>
+          <div style={{ ...cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div>
+              <div style={{ fontWeight: 800 }}>사냥터</div>
+              <div style={muted}>사냥터 카드</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <button
+                style={btn}
+                onClick={openNewGround}
+                title="내 사냥터 추가(로컬 저장)"
+              >
+                + 추가
+              </button>
+              {isCustomSelected ? (
+                <>
+                  <button style={btn} onClick={() => openEditGround(selected!.id)}>
+                    수정
+                  </button>
+                  <button style={{ ...btn, borderColor: "rgba(255, 120, 120, 0.35)", background: "rgba(255, 120, 120, 0.08)" }} onClick={() => deleteCustomGround(selected!.id)}>
+                    삭제
+                  </button>
+                </>
+              ) : null}
+            </div>
           </div>
 
           <div style={{ padding: 12, display: "grid", gap: 10, maxHeight: "calc(100vh - 72px - 140px - 14px*4)", overflow: "auto" }}>
@@ -1449,6 +1581,166 @@ export default function Page() {
           </div>
         </div>
       </footer>
+
+
+      {/* 사냥터 추가/수정 */}
+      {showGroundModal && (
+        <div style={modalOverlay} onMouseDown={(e) => {
+          // backdrop click closes
+          if (e.target === e.currentTarget) closeGroundModal();
+        }}>
+          <div style={modalCard}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={modalTitle}>{groundDraft.id ? "사냥터 수정" : "사냥터 추가"}</div>
+              <button style={btnSmall} onClick={closeGroundModal}>닫기</button>
+            </div>
+
+            <div style={formRow}>
+              <div>
+                <div style={label}>사냥터 이름</div>
+                <input
+                  style={input}
+                  value={groundDraft.name}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, name: e.target.value }))}
+                  placeholder="예) 커즈아이의 숲"
+                />
+              </div>
+              <div>
+                <div style={label}>지역(선택)</div>
+                <input
+                  style={input}
+                  value={groundDraft.area}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, area: e.target.value }))}
+                  placeholder="예) 엘리니아"
+                />
+              </div>
+            </div>
+
+            <div style={{ ...formRow, marginTop: 10 }}>
+              <div>
+                <div style={label}>권장 레벨(선택)</div>
+                <input
+                  style={input}
+                  inputMode="numeric"
+                  value={groundDraft.level}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, level: e.target.value.replace(/[^0-9]/g, "") }))}
+                  placeholder="예) 35"
+                />
+              </div>
+              <div>
+                <div style={label}>태그(쉼표로 구분, 선택)</div>
+                <input
+                  style={input}
+                  value={groundDraft.tags}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, tags: e.target.value }))}
+                  placeholder="예) 2층, 혼잡, 원거리"
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 10 }}>
+              <div style={label}>메모(선택)</div>
+              <textarea
+                style={{ ...input, minHeight: 90, resize: "vertical" }}
+                value={groundDraft.note}
+                onChange={(e) => setGroundDraft((d) => ({ ...d, note: e.target.value }))}
+                placeholder="예) 7번 자리(상단) / 안전지대 있음"
+              />
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
+              <button style={btnSmall} onClick={closeGroundModal}>취소</button>
+              <button
+                style={{ ...btnPrimary, padding: "10px 14px" }}
+                onClick={() => {
+                  if (!groundDraft.name.trim()) {
+                    alert("사냥터 이름은 필수야");
+                    return;
+                  }
+                  saveGroundFromDraft();
+                }}
+              >
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* 사냥터 추가/수정 */}
+      {showGroundModal && (
+        <div style={modalOverlay} onClick={() => setShowGroundModal(false)}>
+          <div style={modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: 16 }}>{editingGroundId ? "사냥터 수정" : "사냥터 추가"}</div>
+                <div style={{ ...muted, marginTop: 2 }}>로컬에 저장됩니다(브라우저/기기별)</div>
+              </div>
+              <button style={btnSmall} onClick={() => setShowGroundModal(false)}>
+                닫기
+              </button>
+            </div>
+
+            <div style={formGrid}>
+              <div>
+                <div style={label}>사냥터명</div>
+                <input
+                  style={input}
+                  placeholder="예: 파티퀘스트 입구"
+                  value={groundDraft.name}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, name: e.target.value }))}
+                />
+              </div>
+              <div>
+                <div style={label}>지역</div>
+                <input
+                  style={input}
+                  placeholder="예: 엘리니아"
+                  value={groundDraft.area}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, area: e.target.value }))}
+                />
+              </div>
+              <div>
+                <div style={label}>권장 레벨</div>
+                <input
+                  style={input}
+                  placeholder="예: 35~45"
+                  value={groundDraft.levelRange}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, levelRange: e.target.value }))}
+                />
+              </div>
+              <div>
+                <div style={label}>태그</div>
+                <input
+                  style={input}
+                  placeholder="예: 파티, 자리, 안전 (쉼표로 구분)"
+                  value={groundDraft.tags}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, tags: e.target.value }))}
+                />
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={label}>메모</div>
+                <textarea
+                  style={{ ...input, minHeight: 90, resize: "vertical" }}
+                  placeholder="추가로 적고 싶은 내용"
+                  value={groundDraft.note}
+                  onChange={(e) => setGroundDraft((d) => ({ ...d, note: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button style={btnSmall} onClick={() => setShowGroundModal(false)}>
+                취소
+              </button>
+              <button style={btnPrimary} onClick={saveGroundModal}>
+                저장
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
