@@ -28,7 +28,7 @@ export function BuffTable(props: {
   me: Me;
   myBuffs: { simbi: number; ppeongbi: number; syapbi: number };
   onChangeMyBuffs: (v: { simbi: number; ppeongbi: number; syapbi: number }) => void;
-  onPushMyBuffs: () => void;
+  onPushMyBuffs: (next: { simbi: number; ppeongbi: number; syapbi: number }) => void | Promise<void>;
   fmtNumber: (n: number | null | undefined) => string;
   card: React.CSSProperties;
   muted: React.CSSProperties;
@@ -61,7 +61,7 @@ export function BuffTable(props: {
           <div style={muted}>{partyId ? `파티: ${partyId.slice(0, 6)}...` : "파티 없음"}</div>
         </div>
         <button
-          onClick={onPushMyBuffs}
+          onClick={() => onPushMyBuffs(myBuffs)}
           style={{
             border: "1px solid rgba(255,255,255,0.14)",
             background: "rgba(120,200,255,0.12)",
