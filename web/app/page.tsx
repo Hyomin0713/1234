@@ -202,6 +202,8 @@ export default function Page() {
 
   // groundId -> active queue count (searching + matched)
   const [queueCounts, setQueueCounts] = useState<Record<string, number>>({});
+  // groundId -> EMA average wait time (ms)
+  const [avgWaitMs, setAvgWaitMs] = useState<Record<string, number>>({});
   const [myBuffs, setMyBuffs] = useState<{ simbi: number; ppeongbi: number; syapbi: number }>({ simbi: 0, ppeongbi: 0, syapbi: 0 });
   const [channelLetter, setChannelLetter] = useState("A");
   const [channelNum, setChannelNum] = useState("001");
@@ -360,6 +362,8 @@ export default function Page() {
       const counts = payload?.counts;
       if (!counts || typeof counts !== "object") return;
       setQueueCounts(counts as Record<string, number>);
+      const nextAvg = payload?.avgWaitMs;
+      if (nextAvg && typeof nextAvg === "object") setAvgWaitMs(nextAvg as Record<string, number>);
     });
 
 
@@ -817,7 +821,12 @@ export default function Page() {
             {matchState === "idle"
               ? "대기"
               : matchState === "searching"
-              ? `매칭중${".".repeat(dotTick)} · 현재 ${(queueCounts[selectedId] ?? 0)}명`
+              ? (() => {
+                  const n = queueCounts[selectedId] ?? 0;
+                  const eta = avgWaitMs[selectedId];
+                  const etaMin = typeof eta === "number" && eta > 0 ? Math.max(1, Math.round(eta / 60000)) : 0;
+                  return `매칭중${".".repeat(dotTick)} · 현재 ${n}명${etaMin ? ` · 예상 ${etaMin}분` : ""}`;
+                })()
               : `완료 (${channel || "채널 발급"})`}
           </div>
         </div>
@@ -1256,9 +1265,15 @@ export default function Page() {
             <div style={{ ...muted, marginTop: 8 }}>
               {matchState === "idle" && "큐 참가하면 매칭이 시작됩니다."}
               {matchState === "searching" &&
-                ((queueCounts[selectedId] ?? 0) >= 2
-                  ? `찾는 중… (현재 ${(queueCounts[selectedId] ?? 0)}명) 마음이 바뀌면 ‘큐 취소’ 가능.`
-                  : `대기 인원이 부족합니다. (현재 ${(queueCounts[selectedId] ?? 0)}명)`)}
+                (() => {
+                  const n = queueCounts[selectedId] ?? 0;
+                  const eta = avgWaitMs[selectedId];
+                  const etaMin = typeof eta === "number" && eta > 0 ? Math.max(1, Math.round(eta / 60000)) : 0;
+                  const etaText = etaMin ? ` · 예상 ${etaMin}분` : "";
+                  return n >= 2
+                    ? `찾는 중… (현재 ${n}명${etaText}) 마음이 바뀌면 ‘큐 취소’ 가능.`
+                    : `대기 인원이 부족합니다. (현재 ${n}명)`;
+                })()}
               {matchState === "matched" && "채널 확인 후, 필요하면 ‘다시 매칭’도 가능."}
             </div>
 

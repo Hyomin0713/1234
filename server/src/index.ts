@@ -130,7 +130,7 @@ function broadcastQueueCounts() {
   if (queueCountTimer) return;
   queueCountTimer = setTimeout(() => {
     queueCountTimer = null;
-    io.emit("queue:counts", { counts: QUEUE.getCountsByGround() });
+    io.emit("queue:counts", { counts: QUEUE.getCountsByGround(), avgWaitMs: QUEUE.getAvgWaitByGround() });
   }, 150);
 }
 
@@ -570,7 +570,7 @@ io.on("connection", (socket) => {
     emitQueueStatus(u.id);
 
     // Send current counts on hello so UI immediately has numbers.
-    socket.emit("queue:counts", { counts: QUEUE.getCountsByGround() });
+    socket.emit("queue:counts", { counts: QUEUE.getCountsByGround(), avgWaitMs: QUEUE.getAvgWaitByGround() });
   });
 
   socket.on("queue:updateProfile", (p: any) => {

@@ -14,6 +14,7 @@ export type QueueEntry = QueueProfile & {
   socketId: string;
   huntingGroundId: string;
   state: "idle" | "searching" | "matched";
+  searchingSince?: number;
   matchId?: string;
   leaderId?: string;
   channel?: string;
@@ -73,6 +74,10 @@ export class QueueStore {
   // userId -> entry
   private byUserId = new Map<string, QueueEntry>();
 
+  // groundId -> EMA avg wait ms
+  private avgWaitMsByGround = new Map<string, number>();
+  private readonly EMA_ALPHA = 0.25; // higher = more reactive
+
   get(userId: string) {
     return this.byUserId.get(normStr(userId, 64));
   }
@@ -99,6 +104,7 @@ export class QueueStore {
       socketId: normStr(socketId, 128),
       huntingGroundId: hg,
       state: "searching",
+      searchingSince: Date.now(),
       partyId: undefined,
       updatedAt: Date.now()
     };
@@ -111,6 +117,7 @@ export class QueueStore {
     const cur = this.byUserId.get(uid);
     if (!cur) return { ok: false as const };
     cur.state = "idle";
+    cur.searchingSince = undefined;
     cur.matchId = undefined;
     cur.leaderId = undefined;
     cur.channel = undefined;
@@ -172,6 +179,13 @@ export class QueueStore {
         // Leader sets the channel after matching.
         const matchId = randMatchId();
         const leaderId = a.userId;
+
+        // track wait time (best-effort)
+        const now = Date.now();
+        const aSince = a.searchingSince ?? now;
+        const bSince = b.searchingSince ?? now;
+        const waitMs = Math.max(0, now - Math.min(aSince, bSince));
+        this.bumpAvgWait(huntingGroundId, waitMs);
         a.state = "matched";
         b.state = "matched";
         a.matchId = matchId;
@@ -180,6 +194,8 @@ export class QueueStore {
         b.leaderId = leaderId;
         a.channel = undefined;
         b.channel = undefined;
+        a.searchingSince = undefined;
+        b.searchingSince = undefined;
         a.updatedAt = Date.now();
         b.updatedAt = Date.now();
         this.byUserId.set(a.userId, a);
@@ -188,6 +204,20 @@ export class QueueStore {
       }
     }
     return { ok: false as const };
+  }
+
+  private bumpAvgWait(huntingGroundId: string, waitMs: number) {
+    const hg = normStr(huntingGroundId, 64);
+    if (!hg) return;
+    const prev = this.avgWaitMsByGround.get(hg);
+    const next = prev == null ? waitMs : prev * (1 - this.EMA_ALPHA) + waitMs * this.EMA_ALPHA;
+    this.avgWaitMsByGround.set(hg, Math.max(0, Math.floor(next)));
+  }
+
+  getAvgWaitByGround() {
+    const out: Record<string, number> = {};
+    for (const [k, v] of this.avgWaitMsByGround.entries()) out[k] = v;
+    return out;
   }
 
   setChannelByLeader(leaderId: string, channel: string) {
