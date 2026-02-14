@@ -23,20 +23,46 @@ function clamp(n, lo, hi) {
         return lo;
     return Math.max(lo, Math.min(hi, Math.floor(v)));
 }
+
+function extractDiscordId(s) {
+    const raw = String(s ?? "").trim();
+    const m = raw.match(/(\d{15,20})/);
+    return m ? m[1] : null;
+}
+function normNameKey(s) {
+    return normStr(s, 64).toLowerCase();
+}
+
 function hasMutualBlock(a, b, resolveNameToId) {
-    const aSet = new Set(a.blacklist
-        .map((x) => resolveNameToId(x) ?? normStr(x))
-        .filter(Boolean));
-    const bSet = new Set(b.blacklist
-        .map((x) => resolveNameToId(x) ?? normStr(x))
-        .filter(Boolean));
-    // check by id first
-    if (aSet.has(b.userId) || bSet.has(a.userId))
+    const aIds = new Set();
+    const bIds = new Set();
+    const aNames = new Set();
+    const bNames = new Set();
+    for (const x of (a.blacklist ?? [])) {
+        const raw = normStr(x, 64);
+        if (!raw)
+            continue;
+        const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
+        if (id)
+            aIds.add(id);
+        aNames.add(raw.toLowerCase());
+    }
+    for (const x of (b.blacklist ?? [])) {
+        const raw = normStr(x, 64);
+        if (!raw)
+            continue;
+        const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
+        if (id)
+            bIds.add(id);
+        bNames.add(raw.toLowerCase());
+    }
+    if (aIds.has(b.userId) || bIds.has(a.userId))
         return true;
-    // also check by displayName as fallback
-    const aName = normStr(a.displayName, 64);
-    const bName = normStr(b.displayName, 64);
-    if (aSet.has(bName) || bSet.has(aName))
+    if (aNames.has(b.userId.toLowerCase()) || bNames.has(a.userId.toLowerCase()))
+        return true;
+    const aName = normNameKey(a.displayName);
+    const bName = normNameKey(b.displayName);
+    if (aNames.has(bName) || bNames.has(aName))
         return true;
     return false;
 }

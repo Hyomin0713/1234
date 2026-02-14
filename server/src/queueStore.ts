@@ -6,7 +6,7 @@ export type QueueProfile = {
   level: number;
   job: Job;
   power: number;
-  // blacklist identifiers - can be discord userIds OR names (server will resolve where possible)
+
   blacklist: string[];
 };
 
@@ -27,8 +27,8 @@ function randMatchId() {
 }
 
 function randChannel() {
-  const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); // A-Z
-  const num = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0"); // 001-999
+  const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); 
+  const num = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0"); 
   return `${letter}-${num}`;
 }
 
@@ -50,33 +50,59 @@ function clamp(n: any, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, Math.floor(v)));
 }
 
+
+function extractDiscordId(s: any): string | null {
+  const raw = String(s ?? "").trim();
+
+  const m = raw.match(/(\d{15,20})/);
+  return m ? m[1] : null;
+}
+
+function normNameKey(s: any) {
+  return normStr(s, 64).toLowerCase();
+}
+
 function hasMutualBlock(a: QueueEntry, b: QueueEntry, resolveNameToId: (s: string) => string | null) {
-  const aSet = new Set(
-    a.blacklist
-      .map((x) => resolveNameToId(x) ?? normStr(x))
-      .filter(Boolean)
-  );
-  const bSet = new Set(
-    b.blacklist
-      .map((x) => resolveNameToId(x) ?? normStr(x))
-      .filter(Boolean)
-  );
-  // check by id first
-  if (aSet.has(b.userId) || bSet.has(a.userId)) return true;
-  // also check by displayName as fallback
-  const aName = normStr(a.displayName, 64);
-  const bName = normStr(b.displayName, 64);
-  if (aSet.has(bName) || bSet.has(aName)) return true;
+  const aIds = new Set<string>();
+  const bIds = new Set<string>();
+  const aNames = new Set<string>();
+  const bNames = new Set<string>();
+
+  for (const x of a.blacklist ?? []) {
+    const raw = normStr(x, 64);
+    if (!raw) continue;
+    const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
+    if (id) aIds.add(id);
+    aNames.add(raw.toLowerCase());
+  }
+  for (const x of b.blacklist ?? []) {
+    const raw = normStr(x, 64);
+    if (!raw) continue;
+    const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
+    if (id) bIds.add(id);
+    bNames.add(raw.toLowerCase());
+  }
+
+
+  if (aIds.has(b.userId) || bIds.has(a.userId)) return true;
+
+  if (aNames.has(b.userId.toLowerCase()) || bNames.has(a.userId.toLowerCase())) return true;
+
+
+  const aName = normNameKey(a.displayName);
+  const bName = normNameKey(b.displayName);
+  if (aNames.has(bName) || bNames.has(aName)) return true;
+
   return false;
 }
 
 export class QueueStore {
-  // userId -> entry
+
   private byUserId = new Map<string, QueueEntry>();
 
-  // groundId -> EMA avg wait ms
+
   private avgWaitMsByGround = new Map<string, number>();
-  private readonly EMA_ALPHA = 0.25; // higher = more reactive
+  private readonly EMA_ALPHA = 0.25; 
 
   get(userId: string) {
     return this.byUserId.get(normStr(userId, 64));
@@ -152,10 +178,7 @@ export class QueueStore {
     return xs;
   }
 
-  /**
-   * Return counts of active queue entries (searching+matched) grouped by huntingGroundId.
-   * Useful for UI to show "현재 큐 n명".
-   */
+
   getCountsByGround() {
     const counts: Record<string, number> = {};
     for (const e of this.byUserId.values()) {
@@ -166,7 +189,7 @@ export class QueueStore {
     return counts;
   }
 
-  // naive match: pair up the oldest two searching users who are not mutually blocked
+
   tryMatch(huntingGroundId: string, resolveNameToId: (s: string) => string | null) {
     const xs = this.listByGround(huntingGroundId).filter((e) => e.state === "searching");
     for (let i = xs.length - 1; i >= 0; i--) {
@@ -176,11 +199,11 @@ export class QueueStore {
         if (a.userId === b.userId) continue;
         if (hasMutualBlock(a, b, resolveNameToId)) continue;
 
-        // Leader sets the channel after matching.
+
         const matchId = randMatchId();
         const leaderId = a.userId;
 
-        // track wait time (best-effort)
+
         const now = Date.now();
         const aSince = a.searchingSince ?? now;
         const bSince = b.searchingSince ?? now;
@@ -244,10 +267,7 @@ export class QueueStore {
     return { ok: true as const, matchId, channel: ch, members };
   }
 
-  /**
-   * Clear queue entries that reference parties that no longer exist.
-   * This prevents clients from being stuck with a stale partyId after TTL/disband.
-   */
+
   cleanupDanglingParties(partyExists: (partyId: string) => boolean) {
     const now = Date.now();
     const cleaned: QueueEntry[] = [];

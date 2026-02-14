@@ -6,6 +6,9 @@ import { io, type Socket } from "socket.io-client";
 import { ToastBanner } from "./components/ToastBanner";
 import { DiscordAside } from "./components/DiscordAside";
 import { SearchHeader } from "./components/SearchHeader";
+import { GroundCardList } from "./components/GroundCardList";
+import { PublicPartyPanel } from "./components/PublicPartyPanel";
+import { BuffTable } from "./components/BuffTable";
 
 type Job = "전사" | "도적" | "궁수" | "마법사";
 type MatchState = "idle" | "searching" | "matched";
@@ -14,9 +17,18 @@ type MeResponse = { user: { id: string; username: string; global_name: string | 
 
 type Toast = { type: "ok" | "err" | "info"; msg: string };
 
-// Single-domain deploy: keep API calls same-origin by default.
-// If you later split domains, set NEXT_PUBLIC_API_BASE and change this.
+
+
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "";
+
+function tryCopy(text: string) {
+  try {
+    void navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 
 type HuntingGround = {
@@ -30,44 +42,12 @@ type HuntingGround = {
 
 const GROUNDS: HuntingGround[] = [
   {
-    id: "hg-kerning-1",
-    name: "커닝시티 지하철 1구역",
-    area: "커닝",
-    recommendedLevel: "21~30",
-    tags: ["혼잡", "저레벨", "파티"],
-    note: "초반 파티 사냥용. 자리 경쟁 잦음.",
-  },
-  {
-    id: "hg-orbis-1",
-    name: "오르비스 탑 20층",
-    area: "오르비스",
-    recommendedLevel: "31~45",
-    tags: ["안정", "파티", "원거리유리"],
-    note: "몹 밀집 좋음. 원거리 직업 체감 좋음.",
-  },
-  {
-    id: "hg-ellinia-1",
-    name: "엘리니아 북쪽 숲",
-    area: "엘리니아",
-    recommendedLevel: "15~25",
-    tags: ["여유", "솔플", "초보"],
-    note: "큐보다 솔플 선호 구간. 테스트용으로 남김.",
-  },
-  {
-    id: "hg-ludi-1",
-    name: "루디브리엄 시계탑 2층",
-    area: "루디",
-    recommendedLevel: "45~60",
-    tags: ["파티", "인기", "자리거래많음"],
-    note: "자리 공유/파티 매칭 수요 높음.",
-  },
-  {
-    id: "hg-omega-1",
-    name: "오메가 섹터 구역 A",
-    area: "오메가",
-    recommendedLevel: "55~70",
-    tags: ["파티", "경험치", "사냥터핵심"],
-    note: "레벨대 맞추기 좋음. 큐 테스트 추천.",
+    id: "octopus",
+    name: "위험한 바다의 협곡2",
+    area: "아쿠아리움",
+    recommendedLevel: "Lv. 92+",
+    tags: ["위바협", "오징어", "원양어선"],
+    note: "원격 폭업의 성지",
   },
 ];
 
@@ -93,11 +73,11 @@ function safeLocalSet(key: string, value: any) {
 }
 
 export default function Page() {
-  // 1) 디스코드 로그인 (현재는 UI만 / 추후 /auth/discord 연결)
+
   const [me, setMe] = useState<MeResponse | null>(null);
   const isLoggedIn = !!me?.user?.id;
 
-  // Lightweight toast (used by party list join etc.)
+
   const [toast, setToast] = useState<Toast | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -105,13 +85,13 @@ export default function Page() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Fetch login state right after OAuth redirect (and on hard refresh)
+
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        // OAuth fallback: server may redirect to /#sid=... to recover session
-        // if the browser didn't persist Set-Cookie. Hash is client-only.
+
+
         const sid = typeof window !== "undefined" && window.location.hash.startsWith("#sid=")
           ? window.location.hash.slice("#sid=".length)
           : "";
@@ -128,12 +108,12 @@ export default function Page() {
         const data = (await res.json()) as MeResponse;
         setMe(data);
 
-        // Clean the hash so it doesn't stick around.
+
         if (sid && typeof window !== "undefined") {
           window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
       } catch {
-        // Network errors shouldn't crash the page.
+
         setMe(null);
       }
     })();
@@ -142,24 +122,25 @@ export default function Page() {
     };
   }, []);
 
-  // Discord profile display helpers (safe for build + unauth states)
+
   const discordName = (me?.user?.global_name ?? me?.user?.username ?? "User").trim() || "User";
-  // Discord 'tag' is effectively the username in new Discord. Keep as a secondary line.
+
   const discordTag = (me?.user?.username ?? "unknown").trim() || "unknown";
   const [nickname, setNickname] = useState("");
   useEffect(() => {
     const n = (me?.profile?.displayName ?? me?.user?.global_name ?? me?.user?.username ?? "").trim();
-    if (n) setNickname((prev) => (prev ? prev : n));
+
+    void n;
   }, [me]);
 
-  // 2) 사냥터 검색
+
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(GROUNDS[0]?.id ?? "");
 
-  // Settings modal (profile)
+
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // 사용자 커스텀 사냥터(로컬 저장) — 나중에 사용자가 직접 추가/수정 가능
+
   const [customGrounds, setCustomGrounds] = useState<HuntingGround[]>([]);
   const [groundEditorOpen, setGroundEditorOpen] = useState(false);
   const [groundDraft, setGroundDraft] = useState<HuntingGround | null>(null);
@@ -187,12 +168,12 @@ export default function Page() {
 
   const ALL_GROUNDS = useMemo(() => [...GROUNDS, ...customGrounds], [customGrounds]);
 
-  // 7) 큐 정보
+
   const [level, setLevel] = useState(50);
   const [job, setJob] = useState<Job>("전사");
   const [power, setPower] = useState(12000);
 
-  // Load saved profile (level/job/power/nickname)
+
   useEffect(() => {
     const saved = safeLocalGet("mlq.profile", null as any);
     if (saved && typeof saved === "object") {
@@ -203,7 +184,7 @@ export default function Page() {
     }
   }, []);
 
-  // Persist profile locally
+
   useEffect(() => {
     safeLocalSet("mlq.profile", { nickname, level, job, power });
   }, [nickname, level, job, power]);
@@ -211,7 +192,7 @@ export default function Page() {
   const [blackInput, setBlackInput] = useState("");
   const [blacklist, setBlacklist] = useState<string[]>(["포켓몬성능"]);
 
-  // 매칭 상태
+
   const [matchState, setMatchState] = useState<MatchState>("idle");
   const [channel, setChannel] = useState<string>("");
   const [isLeader, setIsLeader] = useState(false);
@@ -219,9 +200,9 @@ export default function Page() {
   const [partyId, setPartyId] = useState<string>("");
   const [party, setParty] = useState<any | null>(null);
 
-  // groundId -> active queue count (searching + matched)
+
   const [queueCounts, setQueueCounts] = useState<Record<string, number>>({});
-  // groundId -> EMA average wait time (ms)
+
   const [avgWaitMs, setAvgWaitMs] = useState<Record<string, number>>({});
   const [myBuffs, setMyBuffs] = useState<{ simbi: number; ppeongbi: number; syapbi: number }>({ simbi: 0, ppeongbi: 0, syapbi: 0 });
   const [channelLetter, setChannelLetter] = useState("A");
@@ -259,7 +240,7 @@ export default function Page() {
 
   const partiesForSelected = useMemo(() => {
     if (!selected?.name) return partyList;
-    // Prefer exact matching by groundId when server provides it; fallback to title includes for older parties.
+
     return partyList.filter((p) => {
       const pid = String(p?.groundId ?? "");
       if (pid && pid === selectedId) return true;
@@ -298,11 +279,11 @@ export default function Page() {
     });
   };
 
-  // When login state becomes available, push latest profile to server (for party member snapshot)
+
   useEffect(() => {
     if (!isLoggedIn) return;
     emitProfile(socketRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [isLoggedIn]);
   const [sockConnected, setSockConnected] = useState(false);
 
@@ -350,15 +331,15 @@ export default function Page() {
   const deleteSelectedGround = () => {
     if (!isCustomSelected) return;
     setCustomGrounds((prev) => prev.filter((x) => x.id !== selectedId));
-    // move selection to first item
+
     const next = GROUNDS[0]?.id ?? "";
     setSelectedId(next);
   };
 
 
-  // --- persist & realtime queue (socket) ---
+
   useEffect(() => {
-    // restore saved inputs
+
     const saved = safeLocalGet("mlq.queueForm", null as any);
     if (saved) {
       if (typeof saved.level === "number") setLevel(saved.level);
@@ -414,7 +395,7 @@ export default function Page() {
     });
 
 
-    // ask server to reattach any existing queue state (based on nickname)
+
     sck.emit("queue:hello", {
       nickname,
       level,
@@ -427,20 +408,20 @@ export default function Page() {
       sck.disconnect();
       socketRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
 
   useEffect(() => {
-    // restore last known party (best-effort). This only affects UI; membership is still server-side.
+
     const saved = safeLocalGet<string>("mlq.partyId", "") as string;
     if (saved && !partyId) setPartyId(saved);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   useEffect(() => {
     refreshParties();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   useEffect(() => {
@@ -457,7 +438,7 @@ export default function Page() {
     if (!sockConnected) return;
     if (!partyId) return;
 
-    // Party heartbeat: keep membership alive across refresh / transient disconnects
+
     const beat = () => sck.emit("party:heartbeat", { partyId });
     beat();
     const t = setInterval(beat, 25_000);
@@ -465,7 +446,7 @@ export default function Page() {
   }, [partyId, sockConnected]);
 
   useEffect(() => {
-    // keep my buffs input in sync when party updates
+
     if (!party || !me) return;
     const my = (party.members ?? []).find((m: any) => m.userId === me.user.id);
     if (!my) return;
@@ -477,7 +458,7 @@ export default function Page() {
   }, [party, me]);
 
   useEffect(() => {
-    // keep server updated when user edits
+
     const sck = socketRef.current;
     if (!sck) return;
     if (!sockConnected) return;
@@ -571,7 +552,7 @@ export default function Page() {
       const data = await res.json();
       if (data?.parties) setPartyList(data.parties);
     } catch {
-      // ignore
+
     }
   };
 
@@ -666,15 +647,15 @@ export default function Page() {
   function startMatching() {
     if (!selected) return;
 
-    // 중복 클릭 방지
+
     if (matchState === "searching") return;
 
-    // 지금은 OAuth 연동 전이므로, 로그인 여부와 무관하게 큐 참여는 가능하게 둠
+
     joinQueue();
   }
 
   function rematch() {
-    // 한번 빠졌다가 재참가
+
     leaveQueue();
     joinQueue();
   }
@@ -690,13 +671,13 @@ export default function Page() {
     boxSizing: "border-box",
   };
 
-  // 영역 매핑:
-  // 1: left sidebar (col1 rows 1-3)
-  // 2: top search (col2 row1)
-  // 3-4: center (col2 row2, split inside)
-  // 5: right ad (col3 row2)
-  // 6: bottom ad (col2-3 row3)
-  // 7: queue info (col3 row1 + small area row2 top)
+
+
+
+
+
+
+
   const card: React.CSSProperties = {
     background: "rgba(255,255,255,0.06)",
     border: "1px solid rgba(255,255,255,0.08)",
@@ -829,7 +810,7 @@ export default function Page() {
     <div style={shell}>
       <ToastBanner toast={toast} onClose={() => setToast(null)} />
 
-      {/* 1) 디스코드 */}
+      {}
       <DiscordAside
         isLoggedIn={isLoggedIn}
         discordName={discordName}
@@ -847,7 +828,7 @@ export default function Page() {
         cardHeader={cardHeader}
       />
 
-      {/* 2) 사냥터 검색 */}
+      {}
       <SearchHeader
         query={query}
         onChangeQuery={setQuery}
@@ -857,7 +838,7 @@ export default function Page() {
         cardHeader={cardHeader}
       />
 
-      {/* 7) 큐 정보 (우상단) */}
+      {}
       <section style={{ ...card, gridColumn: "3", gridRow: "1", display: "flex", flexDirection: "column" }}>
         <div style={{ ...cardHeader, alignItems: "flex-start" }}>
           <div style={{ display: "grid", gap: 2 }}>
@@ -1043,7 +1024,7 @@ export default function Page() {
                   <div style={{ fontWeight: 850, letterSpacing: 0.2 }}>{`매칭중입니다${".".repeat(dotTick)}`}</div>
                 </div>
 
-                {/* 롤처럼 ‘기다리는 느낌’만 주는 인디케이터 */}
+                {}
                 <div
                   style={{
                     height: 8,
@@ -1084,8 +1065,25 @@ export default function Page() {
               <div style={{ display: "grid", gap: 6 }}>
                 <div style={{ fontWeight: 900, fontSize: 16 }}>매칭완료!</div>
                 {channel ? (
-                  <div style={{ ...muted, fontSize: 13 }}>
-                    채널은 <span style={{ fontWeight: 900, color: "rgba(255,255,255,0.92)" }}>{channel}</span> 입니다.
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={{ ...chip, background: "rgba(120,200,255,0.12)", borderColor: "rgba(120,200,255,0.32)" }}>채널</div>
+                    <div style={{ fontWeight: 1000, letterSpacing: 0.8, fontSize: 18 }}>{channel}</div>
+                    <button
+                      onClick={() => {
+                        if (tryCopy(channel)) setToast({ type: "ok", msg: "채널을 복사했어요" });
+                      }}
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.14)",
+                        background: "rgba(255,255,255,0.08)",
+                        color: "#e6e8ee",
+                        padding: "8px 10px",
+                        borderRadius: 12,
+                        cursor: "pointer",
+                        fontWeight: 900,
+                      }}
+                    >
+                      복사
+                    </button>
                   </div>
                 ) : (
                   <div style={{ ...muted, fontSize: 13 }}>채널 설정중… (파티장이 설정하면 바로 표시됩니다)</div>
@@ -1098,9 +1096,7 @@ export default function Page() {
                     <div style={{ fontWeight: 900, letterSpacing: 0.6 }}>{partyId}</div>
                     <button
                       onClick={() => {
-                        try {
-                          navigator.clipboard.writeText(partyId);
-                        } catch {}
+                        if (tryCopy(partyId)) setToast({ type: "ok", msg: "파티 코드를 복사했어요" });
                       }}
                       style={{
                         border: "1px solid rgba(255,255,255,0.14)",
@@ -1345,84 +1341,23 @@ export default function Page() {
         </div>
       </section>
 
-      {/* 3-4) 메인: 사냥터 리스트/상세 */}
+      {}
       <main style={{ ...card, gridColumn: "2", gridRow: "2", display: "grid", gridTemplateColumns: "420px 1fr" }}>
-        {/* 3) 리스트 */}
-        <section style={{ borderRight: "1px solid rgba(255,255,255,0.08)" }}>
-          <div style={{ ...cardHeader, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <div>
-              <div style={{ fontWeight: 800 }}>사냥터</div>
-              <div style={muted}>사냥터 카드</div>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button
-                style={btn}
-                onClick={openNewGround}
-                title="내 사냥터 추가(로컬 저장)"
-              >
-                + 추가
-              </button>
-              {isCustomSelected ? (
-                <>
-                  <button style={btn} onClick={openEditGround}>
-                    수정
-                  </button>
-                  <button style={{ ...btn, borderColor: "rgba(255, 120, 120, 0.35)", background: "rgba(255, 120, 120, 0.08)" }} onClick={deleteSelectedGround}>
-                    삭제
-                  </button>
-                </>
-              ) : null}
-            </div>
-          </div>
+        {}
+        <GroundCardList
+          filtered={filtered}
+          selectedId={selected?.id ?? ""}
+          onSelectGround={onSelectGround}
+          isCustomSelected={isCustomSelected}
+          openNewGround={openNewGround}
+          openEditGround={openEditGround}
+          deleteSelectedGround={deleteSelectedGround}
+          cardHeader={cardHeader}
+          muted={muted}
+          btn={btn}
+        />
 
-          <div style={{ padding: 12, display: "grid", gap: 10, maxHeight: "calc(100vh - 72px - 140px - 14px*4)", overflow: "auto" }}>
-            {filtered.map((g) => {
-              const active = selected?.id === g.id;
-              return (
-                <button
-                  key={g.id}
-                  onClick={() => onSelectGround(g.id)}
-                  style={{
-                    textAlign: "left",
-                    borderRadius: 14,
-                    border: active ? "1px solid rgba(120,200,255,0.55)" : "1px solid rgba(255,255,255,0.10)",
-                    background: active ? "rgba(120,200,255,0.10)" : "rgba(255,255,255,0.04)",
-                    padding: 12,
-                    cursor: "pointer",
-                    color: "#e6e8ee",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-                    <div style={{ fontWeight: 900 }}>{g.name}</div>
-                    <div style={muted}>{g.area}</div>
-                  </div>
-                  <div style={{ ...muted, marginTop: 6 }}>권장 레벨: {g.recommendedLevel}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                    {g.tags.slice(0, 4).map((t) => (
-                      <span
-                        key={t}
-                        style={{
-                          fontSize: 11,
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          background: "rgba(255,255,255,0.06)",
-                          border: "1px solid rgba(255,255,255,0.10)",
-                          color: "rgba(230,232,238,0.9)",
-                        }}
-                      >
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        
-        {/* 공개 파티는 중앙 상세 영역에 표시 (사냥터 선택 시 필터링) */}
-</section>
-
-        {/* 4) 상세 */}
+        {}
         <section>
           <div style={cardHeader}>
             <div style={{ fontWeight: 900 }}>{selected?.name ?? "사냥터 선택"}</div>
@@ -1464,157 +1399,34 @@ export default function Page() {
               </div>
             </div>
 
-            <div style={{ ...card, background: "rgba(255,255,255,0.03)" }}>
-              <div style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ fontWeight: 900 }}>공개 파티</div>
-                  <button
-                    onClick={refreshParties}
-                    style={{ ...btnSm, background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.12)" }}
-                    title="파티 목록 새로고침"
-                  >
-                    새로고침
-                  </button>
-                </div>
-                <div style={{ ...muted, marginTop: 6 }}>
-                  {selected?.name ? (
-                    <>선택한 사냥터(<b>{selected.name}</b>)의 공개 파티만 표시합니다. (제목 기준 필터)</>
-                  ) : (
-                    <>사냥터를 선택하면 해당 사냥터의 공개 파티가 여기 표시됩니다.</>
-                  )}
-                </div>
-
-                <div style={{ marginTop: 10, display: "grid", gap: 10, maxHeight: 240, overflow: "auto" }}>
-                  {(selected?.name ? partiesForSelected : partyList).length === 0 ? (
-                    <div style={muted}>현재 공개된 파티가 없습니다.</div>
-                  ) : (
-                    (selected?.name ? partiesForSelected : partyList)
-                      .slice(0, 12)
-                      .map((p: any) => (
-                        <div key={p.id} style={{ ...listCard, borderColor: "rgba(255,255,255,0.12)" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-                            <div style={{ fontWeight: 850, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-                              <div
-                                style={{
-                                  ...pill,
-                                  background: p.isLocked ? "rgba(255, 214, 102, 0.14)" : "rgba(83, 242, 170, 0.12)",
-                                  borderColor: p.isLocked ? "rgba(255, 214, 102, 0.35)" : "rgba(83, 242, 170, 0.35)",
-                                }}
-                              >
-                                {p.isLocked ? "잠금" : "공개"}
-                              </div>
-                              <div style={pill}>{p.memberCount}/6</div>
-                            </div>
-                          </div>
-
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginTop: 8 }}>
-                            <div style={muted}>방 코드: {String(p.id).slice(0, 8).toUpperCase()}</div>
-                            <button onClick={() => joinFromList(p)} style={btnSm}>
-                              참가
-                            </button>
-                          </div>
-                        </div>
-                      ))
-                  )}
-                </div>
-              </div>
-            </div>
+            <PublicPartyPanel
+              selectedName={selected?.name ?? null}
+              selectedId={selected?.id ?? null}
+              myPartyId={partyId || null}
+              parties={(selected?.name ? partiesForSelected : partyList) as any[]}
+              onRefresh={refreshParties}
+              onJoin={joinFromList}
+              card={card}
+              muted={muted}
+              btnSm={btnSm}
+              listCard={listCard}
+              pill={pill}
+            />
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div style={{ ...card, background: "rgba(255,255,255,0.04)" }}>
-                <div style={{ padding: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <div style={{ fontWeight: 900 }}>파티 버프</div>
-                    {partyId ? <div style={{ ...chip, opacity: 0.9 }}>방장코드: <span style={{ fontWeight: 900, marginLeft: 6 }}>{partyId}</span></div> : <div style={muted}>파티 없음</div>}
-                  </div>
-
-                  {party ? (
-                    <div style={{ marginTop: 10 }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.7fr 0.7fr 0.7fr", gap: 8, fontSize: 12, color: "rgba(230,232,238,0.7)", marginBottom: 8 }}>
-                        <div>멤버</div>
-                        <div style={{ textAlign: "center" }}>심비</div>
-                        <div style={{ textAlign: "center" }}>뻥비</div>
-                        <div style={{ textAlign: "center" }}>샾비</div>
-                      </div>
-
-                      {[...(party.members ?? [])].sort((a: any, b: any) => (a.userId === party.ownerId ? -1 : b.userId === party.ownerId ? 1 : 0)).map((m: any) => {
-                        const isMe = me && m.userId === me.user.id;
-                        return (
-                          <div key={m.memberId} style={{ display: "grid", gridTemplateColumns: "1.2fr 0.7fr 0.7fr 0.7fr", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <div style={{ width: 10, height: 10, borderRadius: 999, background: isMe ? "rgba(83, 242, 170, 0.85)" : "rgba(255,255,255,0.25)" }} />
-                              <div style={{ minWidth: 0, display: "grid", gap: 2 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                                  <div style={{ fontWeight: 900, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.displayName}</div>
-                                  {party.ownerId === m.userId ? (
-                                    <div style={{ ...chip, padding: "2px 8px", fontSize: 11, opacity: 0.95, display: "flex", alignItems: "center", gap: 4 }}>
-                                      <span>👑</span>
-                                      <span>방장</span>
-                                    </div>
-                                  ) : null}
-                                  {isMe ? <div style={{ ...chip, padding: "2px 8px", fontSize: 11, opacity: 0.8 }}>나</div> : null}
-                                </div>
-                                <div style={{ fontSize: 12, color: "rgba(230,232,238,0.72)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  Lv. {m.level ?? "-"} · {m.job ?? "-"} · 스공 {fmtNumber(m.power)}
-                                </div>
-                              </div>
-                            </div>
-
-                            {isMe ? (
-                              <>
-                                <input
-                                  style={{ ...input, textAlign: "center" }}
-                                  inputMode="numeric"
-                                  value={String(myBuffs.simbi)}
-                                  onChange={(e) => {
-                                    const v = Math.max(0, Math.min(999, Number(e.target.value.replace(/[^0-9]/g, "")) || 0));
-                                    const next = { ...myBuffs, simbi: v };
-                                    setMyBuffs(next);
-                                    pushMyBuffs(next);
-                                  }}
-                                />
-                                <input
-                                  style={{ ...input, textAlign: "center" }}
-                                  inputMode="numeric"
-                                  value={String(myBuffs.ppeongbi)}
-                                  onChange={(e) => {
-                                    const v = Math.max(0, Math.min(999, Number(e.target.value.replace(/[^0-9]/g, "")) || 0));
-                                    const next = { ...myBuffs, ppeongbi: v };
-                                    setMyBuffs(next);
-                                    pushMyBuffs(next);
-                                  }}
-                                />
-                                <input
-                                  style={{ ...input, textAlign: "center" }}
-                                  inputMode="numeric"
-                                  value={String(myBuffs.syapbi)}
-                                  onChange={(e) => {
-                                    const v = Math.max(0, Math.min(999, Number(e.target.value.replace(/[^0-9]/g, "")) || 0));
-                                    const next = { ...myBuffs, syapbi: v };
-                                    setMyBuffs(next);
-                                    pushMyBuffs(next);
-                                  }}
-                                />
-                              </>
-                            ) : (
-                              <>
-                                <div style={{ ...chip, justifyContent: "center" }}>{m.buffs?.simbi ?? 0}</div>
-                                <div style={{ ...chip, justifyContent: "center" }}>{m.buffs?.ppeongbi ?? 0}</div>
-                                <div style={{ ...chip, justifyContent: "center" }}>{m.buffs?.syapbi ?? 0}</div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      <div style={muted}>내 버프만 수정 가능하며, 변경 즉시 파티에 공유됩니다.</div>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 10, ...muted }}>매칭/파티 참여 후 자동으로 표시됩니다.</div>
-                  )}
-                </div>
-              </div>
+              <BuffTable
+                partyId={partyId}
+                party={party}
+                me={me}
+                myBuffs={myBuffs}
+                onChangeMyBuffs={setMyBuffs}
+                onPushMyBuffs={pushMyBuffs}
+                fmtNumber={fmtNumber}
+                card={card}
+                muted={muted}
+                chip={chip}
+                input={input}
+              />
               <div style={{ ...card, background: "rgba(255,255,255,0.04)" }}>
                 <div style={{ padding: 14 }}>
                   <div style={{ fontWeight: 900, marginBottom: 6 }}>파티 유지 (예정)</div>
@@ -1658,7 +1470,7 @@ export default function Page() {
         </section>
       </main>
 
-      {/* 5) 우측 광고 */}
+      {}
       <aside style={{ ...card, gridColumn: "3", gridRow: "2" }}>
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>광고 영역</div>
@@ -1687,7 +1499,7 @@ export default function Page() {
         </div>
       </aside>
 
-      {/* 6) 하단 광고 */}
+      {}
       <footer style={{ ...card, gridColumn: "2 / span 2", gridRow: "3" }}>
         <div style={cardHeader}>
           <div style={{ fontWeight: 800 }}>광고 영역</div>
@@ -1710,7 +1522,7 @@ export default function Page() {
         </div>
       </footer>
 
-      {/* 사냥터 추가/수정 (커스텀 사냥터 에디터) */}
+      {}
       {groundEditorOpen && groundDraft ? (
         <div
           style={modalOverlay}
@@ -1810,7 +1622,7 @@ export default function Page() {
         </div>
       ) : null}
 
-      {/* Settings Modal: 레벨/직업/스공 설정 (로그아웃 옆 ⚙) */}
+      {}
       {settingsOpen ? (
         <div
           onClick={() => setSettingsOpen(false)}

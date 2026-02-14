@@ -5,7 +5,7 @@ import cors from "cors";
 import http from "http";
 import { Server as IOServer } from "socket.io";
 
-// Optional .env loader (local dev)
+
 function loadDotEnv() {
   try {
     const envPath = path.resolve(process.cwd(), ".env");
@@ -49,11 +49,11 @@ import { cleanupSessions, cookieSerialize, deleteSession, getSession, newSession
 
 const PORT = Number(process.env.PORT ?? 8000);
 
-// Party keep-alive / TTL
-const MEMBER_TTL_MS = Number(process.env.MEMBER_TTL_MS ?? 70_000); // member heartbeat window
-const PARTY_TTL_MS = Number(process.env.PARTY_TTL_MS ?? 10 * 60_000); // auto-disband if whole party is idle
 
-// ✅ one-domain deployment: ORIGIN=PUBLIC_URL (Railway) or your custom domain
+const MEMBER_TTL_MS = Number(process.env.MEMBER_TTL_MS ?? 70_000); 
+const PARTY_TTL_MS = Number(process.env.PARTY_TTL_MS ?? 10 * 60_000); 
+
+
 const PUBLIC_URL = (process.env.PUBLIC_URL ?? process.env.ORIGIN ?? `http://localhost:${PORT}`).trim();
 const ORIGIN_RAW = (process.env.ORIGIN ?? PUBLIC_URL).trim();
 
@@ -77,7 +77,7 @@ function resolveNameToId(s: string): string | null {
 }
 
 
-// In a single-domain setup, CORS isn't strictly needed, but keeping it helps local dev.
+
 app.use(
   cors({
     origin: ORIGINS === "*" ? true : ORIGINS,
@@ -86,7 +86,7 @@ app.use(
 );
 app.use(express.json());
 
-// lightweight rate limiter for OAuth callback
+
 function rateLimit(opts: { windowMs: number; max: number }) {
   const hits = new Map<string, { count: number; resetAt: number }>();
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -138,8 +138,8 @@ function extractSessionId(req: express.Request): string | undefined {
   const cookies = parseCookies(req.headers.cookie);
   const fromCookie = cookies["ml_session"];
   if (fromCookie) return fromCookie;
-  // Fallback for rare cases where the cookie isn't persisted after OAuth redirect.
-  // The client may send the session via a header extracted from URL hash.
+
+
   const fromHeader = (req.headers["x-ml-session"] as string | undefined) ?? undefined;
   if (fromHeader && typeof fromHeader === "string") return fromHeader;
   return undefined;
@@ -150,7 +150,7 @@ function setSessionCookie(res: express.Response, sessionId: string) {
     "Set-Cookie",
     cookieSerialize("ml_session", sessionId, {
       httpOnly: true,
-      secure: /^https:\/\//i.test(PUBLIC_URL),
+      secure: /^https:\/\
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24 * 7
@@ -170,7 +170,7 @@ function requireAuth(req: express.Request, res: express.Response): { user: Disco
 
 app.get("/health", (_req, res) => res.json({ ok: true, now: Date.now() }));
 
-/** ---------------- Discord OAuth ---------------- */
+
 app.get("/auth/discord", (_req, res) => {
   if (!DISCORD_CLIENT_ID) return res.status(500).send("DISCORD_CLIENT_ID not set");
   const params = new URLSearchParams({
@@ -221,12 +221,12 @@ app.get("/auth/discord/callback", rateLimit({ windowMs: 60_000, max: 30 }), asyn
 
     const s = newSession(user);
 
-    // Primary: persist cookie for same-domain deployment.
+
     setSessionCookie(res, s.sessionId);
 
-    // Fallback: also pass sid via URL hash so the client can recover even if
-    // the browser did not persist the cookie after the OAuth redirect.
-    // (hash is not sent as Referer / request path to servers)
+
+
+
     res.redirect(`/#sid=${encodeURIComponent(s.sessionId)}`);
   } catch (e) {
     console.error(e);
@@ -234,12 +234,12 @@ app.get("/auth/discord/callback", rateLimit({ windowMs: 60_000, max: 30 }), asyn
   }
 });
 
-/** ---------------- Auth APIs ---------------- */
 
-// --- profile APIs ---
-// NOTE: we intentionally avoid Express "middleware" style auth here.
-// This repo uses a cookie session helper (requireAuth) that returns the user,
-// so we call it inside each handler to keep types + control flow simple.
+
+
+
+
+
 app.get("/api/profile", (req, res) => {
   const auth = requireAuth(req, res);
   if (!auth) return;
@@ -279,9 +279,9 @@ app.get("/api/queue/status", (req, res) => {
 app.get("/api/me", (req, res) => {
   const auth = requireAuth(req, res);
   if (!auth) return;
-  // Refresh cookie (and recover if auth came from x-ml-session header).
+
   setSessionCookie(res, auth.sessionId);
-  // return full in-memory profile used by queue/blacklist UI
+
   res.json({ user: auth.user, profile: USERS.get(auth.user.id) ?? null });
 });
 
@@ -293,7 +293,7 @@ app.post("/api/logout", (req, res) => {
     "Set-Cookie",
     cookieSerialize("ml_session", "", {
       httpOnly: true,
-      secure: /^https:\/\//i.test(PUBLIC_URL),
+      secure: /^https:\/\
       sameSite: "lax",
       path: "/",
       maxAge: 0
@@ -302,7 +302,7 @@ app.post("/api/logout", (req, res) => {
   res.json({ ok: true });
 });
 
-/** ---------------- Profile ---------------- */
+
 app.post("/api/profile", (req, res) => {
   const auth = requireAuth(req, res);
   if (!auth) return;
@@ -315,7 +315,7 @@ app.post("/api/profile", (req, res) => {
   }
 });
 
-/** ---------------- Party APIs ---------------- */
+
 app.get("/api/parties", (_req, res) => res.json({ parties: STORE.listParties() }));
 
 app.post("/api/party", (req, res) => {
@@ -475,8 +475,8 @@ app.post("/api/party/transfer", (req, res) => {
   }
 });
 
-/** ---------------- Socket.IO ---------------- */
-// socket ↔ user mapping (for queue cleanup on disconnect etc.)
+
+
 const socketToUserId = new Map<string, string>();
 
 function cleanupPartyMembership(userId: string) {
@@ -487,9 +487,9 @@ function cleanupPartyMembership(userId: string) {
     const before = STORE.getParty(pid);
     const out = STORE.leaveParty({ partyId: pid, userId });
 
-    // Auto-disband policy (minimal & safe):
-    // If this party looks like an auto-created matchmaking party and drops below 2 members,
-    // remove it to avoid lingering "ghost" parties.
+
+
+
     const p = out ?? STORE.getParty(pid);
     const wasAuto = !!before?.title?.startsWith("사냥터 ");
     if (wasAuto && p && p.members.length < 2) {
@@ -506,7 +506,7 @@ function cleanupPartyMembership(userId: string) {
     }
     broadcastParty(pid);
   } catch {
-    // ignore
+
   }
 }
 
@@ -524,13 +524,22 @@ function requireSocketUser(socket: import("socket.io").Socket): DiscordUser | nu
 io.on("connection", (socket) => {
   socket.on("joinPartyRoom", ({ partyId }: { partyId: string }) => {
     if (!partyId) return;
+
+    const party = STORE.getParty(partyId);
+    if (!party) {
+
+      socket.emit("partyDeleted", { partyId });
+      return;
+    }
+
     socket.join(partyId);
+
     const u = requireSocketUser(socket);
     if (u) {
       STORE.touchMember(partyId, u.id);
     }
-    const party = STORE.getParty(partyId);
-    if (party) socket.emit("partyUpdated", { party });
+
+    socket.emit("partyUpdated", { party });
   });
 
 
@@ -540,12 +549,12 @@ io.on("connection", (socket) => {
     if (!partyId) return;
     const p = STORE.touchMember(String(partyId), u.id);
     if (p) {
-      // lightweight: only broadcast occasionally via existing timers
+
       broadcastParty(String(partyId));
     }
   });
 
-// --- queue matchmaking ---
+
   function ensureLoggedIn() {
     const u = requireSocketUser(socket);
     if (!u) {
@@ -582,10 +591,10 @@ io.on("connection", (socket) => {
     if (!u) return;
 
     socketToUserId.set(socket.id, u.id);
-    
+
     emitQueueStatus(u.id);
 
-    // Send current counts on hello so UI immediately has numbers.
+
     socket.emit("queue:counts", { counts: QUEUE.getCountsByGround(), avgWaitMs: QUEUE.getAvgWaitByGround() });
   });
 
@@ -600,10 +609,10 @@ io.on("connection", (socket) => {
     const job = p?.job ?? "전사";
     const power = Number(p?.power ?? 0);
 
-    // Persist into server-side UserStore so party APIs can enrich members.
+
     USERS.upsert(u.id, { displayName, level, job, power });
 
-    // If user is already in queue, update their live entry too.
+
     const cur = QUEUE.get(u.id);
     if (cur && cur.state !== "idle") {
       cur.displayName = displayName;
@@ -613,7 +622,7 @@ io.on("connection", (socket) => {
       cur.updatedAt = Date.now();
     }
 
-    // If user is in any party, update member snapshot and broadcast.
+
     const touched = STORE.updateMemberProfile(u.id, { name: displayName, level, job, power });
     for (const pid of touched) broadcastParty(pid);
   });
@@ -626,7 +635,7 @@ io.on("connection", (socket) => {
     if (!huntingGroundId) return;
 
     socketToUserId.set(socket.id, u.id);
-    
+
     const displayName = (u.global_name ?? u.username) || u.username;
     USERS.upsert(u.id, { displayName, level: Number(p?.level ?? 1), job: p?.job ?? "전사", power: Number(p?.power ?? 0), blacklist: Array.isArray(p?.blacklist) ? p.blacklist : [] });
 
@@ -647,13 +656,13 @@ io.on("connection", (socket) => {
 
     const matched = QUEUE.tryMatch(huntingGroundId, resolveNameToId);
     if (matched.ok) {
-      // Auto-create party for the matched pair (single-domain cookie session; party lives in memory)
+
       try {
         const leaderId = matched.leaderId;
         const leaderEntry = matched.a.userId === leaderId ? matched.a : matched.b;
         const otherEntry = leaderEntry === matched.a ? matched.b : matched.a;
 
-        // PartyStore.createParty returns a Party object. Keep payload minimal so TS stays strict.
+
         const party = STORE.createParty({
           ownerId: leaderId,
           ownerName: leaderEntry.displayName,
@@ -676,10 +685,10 @@ io.on("connection", (socket) => {
           power: Number(otherEntry.power ?? 0),
         });
 
-        // remember party id for both queue entries
+
         QUEUE.setPartyForMatch(matched.matchId, partyId);
 
-        // join socket rooms for realtime party updates
+
         const sa = io.sockets.sockets.get(matched.a.socketId);
         const sb = io.sockets.sockets.get(matched.b.socketId);
         sa?.join(partyId);
@@ -742,12 +751,12 @@ io.on("connection", (socket) => {
 
 });
 
-// Party TTL / member TTL sweep + queue cleanup for dangling partyIds
+
 setInterval(() => {
   try {
     const changedPartyIds = STORE.sweepStaleMembers({ memberTtlMs: MEMBER_TTL_MS, partyTtlMs: PARTY_TTL_MS });
     if (changedPartyIds.length) {
-      // notify rooms about deleted parties (best-effort)
+
       for (const pid of changedPartyIds) {
         if (!STORE.getParty(pid)) {
           io.to(pid).emit("partyDeleted", { partyId: pid });
@@ -756,20 +765,20 @@ setInterval(() => {
       broadcastParties();
     }
 
-    // If a party was deleted, clear any queue entries that still reference it.
+
     const cleaned = QUEUE.cleanupDanglingParties((pid) => !!STORE.getParty(pid));
     if (cleaned.length) {
       for (const e of cleaned) {
-        // If user is connected, nudge their UI back to idle.
+
         io.to(e.socketId).emit("queue:status", { state: "idle" });
       }
       broadcastQueueCounts();
     }
   } catch {
-    // ignore
+
   }
 }, 15_000).unref();
-// Serve static web build (Next export output)
+
 const webOut = path.resolve(process.cwd(), "../web/out");
 if (fs.existsSync(webOut)) {
   app.use(express.static(webOut));

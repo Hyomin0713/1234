@@ -1,7 +1,7 @@
 export type Buffs = {
-  simb: number; // 심비
-  bbeong: number; // 뻥비
-  sharp: number; // 샾비
+  simb: number; 
+  bbeong: number; 
+  sharp: number; 
 };
 
 export type PartyMember = {
@@ -39,8 +39,8 @@ function makePartyId() {
 }
 
 export class PartyStore {
-  private parties = new Map<string, Party>(); // partyId -> Party
-  private userToParty = new Map<string, string>(); // userId -> partyId
+  private parties = new Map<string, Party>(); 
+  private userToParty = new Map<string, string>(); 
 
   getParty(partyId: string) {
     return this.parties.get(normStr(partyId, 16));
@@ -137,7 +137,7 @@ export const PARTY = new PartyStore();
 
 function isValidChannel(s: any) {
   const t = String(s ?? "").trim().toUpperCase();
-  // A-Z-001..999
+
   if (!/^[A-Z]-\d{3}$/.test(t)) return null;
   const num = Number(t.split("-")[1]);
   if (!Number.isFinite(num) || num < 1 || num > 999) return null;
