@@ -19,6 +19,11 @@ export type Party = {
   isLocked: boolean;
   lockPasswordHash: string | null;
   members: PartyMember[];
+  buffReq: {
+    simbi: { min: number; max: number };
+    ppeongbi: { min: number; max: number };
+    syapbi: { min: number; max: number };
+  };
   wasFullOnce: boolean;
   matchingPaused: boolean;
   createdAt: number;
@@ -55,7 +60,7 @@ function hash(pw: string) {
 class PartyStore {
   private parties = new Map<string, Party>();
 
-  createParty(args: { title: string; ownerId: string; ownerName: string; lockPassword?: string | null; groundId?: string | null; groundName?: string | null; ownerLevel?: number; ownerJob?: Job; ownerPower?: number }) {
+  createParty(args: { title: string; ownerId: string; ownerName: string; lockPassword?: string | null; groundId?: string | null; groundName?: string | null; ownerLevel?: number; ownerJob?: Job; ownerPower?: number; buffReq?: any }) {
     let id = randCode();
     while (this.parties.has(id)) id = randCode();
     const now = Date.now();
@@ -67,6 +72,11 @@ class PartyStore {
       groundName: (args.groundName ?? null),
       isLocked: false,
       lockPasswordHash: null,
+      buffReq: {
+        simbi: { min: 0, max: 6 },
+        ppeongbi: { min: 0, max: 6 },
+        syapbi: { min: 0, max: 6 }
+      },
       members: [
         {
           userId: args.ownerId,
@@ -84,6 +94,29 @@ class PartyStore {
       createdAt: now,
       updatedAt: now
     };
+
+    if (args.buffReq && typeof args.buffReq === "object") {
+      const clamp = (n: any) => {
+        const v = Math.floor(Number(n));
+        if (!Number.isFinite(v)) return 0;
+        return Math.max(0, Math.min(6, v));
+      };
+      const r = args.buffReq as any;
+      const sim = r.simbi ?? {};
+      const pp = r.ppeongbi ?? {};
+      const sy = r.syapbi ?? {};
+      const simMin = clamp(sim.min);
+      const simMax = clamp(sim.max);
+      const ppMin = clamp(pp.min);
+      const ppMax = clamp(pp.max);
+      const syMin = clamp(sy.min);
+      const syMax = clamp(sy.max);
+      party.buffReq = {
+        simbi: { min: Math.min(simMin, simMax), max: Math.max(simMin, simMax) },
+        ppeongbi: { min: Math.min(ppMin, ppMax), max: Math.max(ppMin, ppMax) },
+        syapbi: { min: Math.min(syMin, syMax), max: Math.max(syMin, syMax) }
+      };
+    }
     if (args.lockPassword) {
       party.isLocked = true;
       party.lockPasswordHash = hash(args.lockPassword);
@@ -100,6 +133,7 @@ class PartyStore {
       groundId: p.groundId,
       groundName: p.groundName,
       isLocked: p.isLocked,
+      buffReq: p.buffReq,
       memberCount: p.members.length,
       updatedAt: p.updatedAt
     }));

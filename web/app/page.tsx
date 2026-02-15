@@ -211,6 +211,13 @@ export default function Page() {
   const [createLocked, setCreateLocked] = useState(false);
   const [createPassword, setCreatePassword] = useState("");
 
+  const [reqSimMin, setReqSimMin] = useState(0);
+  const [reqSimMax, setReqSimMax] = useState(6);
+  const [reqPpMin, setReqPpMin] = useState(0);
+  const [reqPpMax, setReqPpMax] = useState(6);
+  const [reqSyMin, setReqSyMin] = useState(0);
+  const [reqSyMax, setReqSyMax] = useState(6);
+
   const [partyList, setPartyList] = useState<any[]>([]);
 
   const normalizeKey = (s: any) => String(s ?? "").toLowerCase().replace(/\s+/g, "");
@@ -389,6 +396,13 @@ export default function Page() {
       setQueueCounts(counts as Record<string, number>);
       const nextAvg = payload?.avgWaitMs;
       if (nextAvg && typeof nextAvg === "object") setAvgWaitMs(nextAvg as Record<string, number>);
+    });
+
+    sck.on("profile:error", (e: any) => {
+      const code = String(e?.code ?? "");
+      if (code === "NICK_REQUIRED") setToast("프로필에서 닉네임을 먼저 설정해줘.");
+      else if (code === "NICK_TAKEN") setToast("이미 사용 중인 닉네임이야. 다른 닉네임으로 설정해줘.");
+      else setToast("프로필 설정을 확인해줘.");
     });
 
 
@@ -579,6 +593,14 @@ export default function Page() {
         return;
       }
       const sid = getSid();
+      const buffReq = {
+        simbi: { min: Math.max(0, Math.min(6, Math.floor(reqSimMin))), max: Math.max(0, Math.min(6, Math.floor(reqSimMax))) },
+        ppeongbi: { min: Math.max(0, Math.min(6, Math.floor(reqPpMin))), max: Math.max(0, Math.min(6, Math.floor(reqPpMax))) },
+        syapbi: { min: Math.max(0, Math.min(6, Math.floor(reqSyMin))), max: Math.max(0, Math.min(6, Math.floor(reqSyMax))) }
+      };
+      if (buffReq.simbi.min > buffReq.simbi.max) [buffReq.simbi.min, buffReq.simbi.max] = [buffReq.simbi.max, buffReq.simbi.min];
+      if (buffReq.ppeongbi.min > buffReq.ppeongbi.max) [buffReq.ppeongbi.min, buffReq.ppeongbi.max] = [buffReq.ppeongbi.max, buffReq.ppeongbi.min];
+      if (buffReq.syapbi.min > buffReq.syapbi.max) [buffReq.syapbi.min, buffReq.syapbi.max] = [buffReq.syapbi.max, buffReq.syapbi.min];
       const res = await fetch(apiUrl("/api/party"), {
         method: "POST",
         credentials: "include",
@@ -586,7 +608,7 @@ export default function Page() {
           "Content-Type": "application/json",
           ...(sid ? { "x-ml-session": sid } : {}),
         },
-        body: JSON.stringify({ title, lockPassword: createLocked ? pw : undefined, groundId: selectedId || undefined, groundName: selected?.name || undefined }),
+        body: JSON.stringify({ title, lockPassword: createLocked ? pw : undefined, groundId: selectedId || undefined, groundName: selected?.name || undefined, buffReq }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -610,6 +632,14 @@ export default function Page() {
     try {
       const title = selected?.name ? `${selected.name} 공개 파티` : "공개 파티";
       const sid = getSid();
+      const buffReq = {
+        simbi: { min: Math.max(0, Math.min(6, Math.floor(reqSimMin))), max: Math.max(0, Math.min(6, Math.floor(reqSimMax))) },
+        ppeongbi: { min: Math.max(0, Math.min(6, Math.floor(reqPpMin))), max: Math.max(0, Math.min(6, Math.floor(reqPpMax))) },
+        syapbi: { min: Math.max(0, Math.min(6, Math.floor(reqSyMin))), max: Math.max(0, Math.min(6, Math.floor(reqSyMax))) }
+      };
+      if (buffReq.simbi.min > buffReq.simbi.max) [buffReq.simbi.min, buffReq.simbi.max] = [buffReq.simbi.max, buffReq.simbi.min];
+      if (buffReq.ppeongbi.min > buffReq.ppeongbi.max) [buffReq.ppeongbi.min, buffReq.ppeongbi.max] = [buffReq.ppeongbi.max, buffReq.ppeongbi.min];
+      if (buffReq.syapbi.min > buffReq.syapbi.max) [buffReq.syapbi.min, buffReq.syapbi.max] = [buffReq.syapbi.max, buffReq.syapbi.min];
       const res = await fetch(apiUrl("/api/party"), {
         method: "POST",
         credentials: "include",
@@ -617,7 +647,7 @@ export default function Page() {
           "Content-Type": "application/json",
           ...(sid ? { "x-ml-session": sid } : {}),
         },
-        body: JSON.stringify({ title, groundId: selectedId || undefined, groundName: selected?.name || undefined }),
+        body: JSON.stringify({ title, groundId: selectedId || undefined, groundName: selected?.name || undefined, buffReq }),
       });
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -1506,6 +1536,33 @@ export default function Page() {
 </div>
             </div>
 
+            <div style={{ ...card, background: "rgba(255,255,255,0.04)", padding: 12, marginBottom: 10 }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>버프 조건(방 생성)</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <div>
+                  <div style={muted}>심비 (min / max)</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <input style={input} inputMode="numeric" value={String(reqSimMin)} onChange={(e) => setReqSimMin(clampInt(e.target.value, 0, 6))} />
+                    <input style={input} inputMode="numeric" value={String(reqSimMax)} onChange={(e) => setReqSimMax(clampInt(e.target.value, 0, 6))} />
+                  </div>
+                </div>
+                <div>
+                  <div style={muted}>뻥비 (min / max)</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <input style={input} inputMode="numeric" value={String(reqPpMin)} onChange={(e) => setReqPpMin(clampInt(e.target.value, 0, 6))} />
+                    <input style={input} inputMode="numeric" value={String(reqPpMax)} onChange={(e) => setReqPpMax(clampInt(e.target.value, 0, 6))} />
+                  </div>
+                </div>
+                <div>
+                  <div style={muted}>샾비 (min / max)</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                    <input style={input} inputMode="numeric" value={String(reqSyMin)} onChange={(e) => setReqSyMin(clampInt(e.target.value, 0, 6))} />
+                    <input style={input} inputMode="numeric" value={String(reqSyMax)} onChange={(e) => setReqSyMax(clampInt(e.target.value, 0, 6))} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div style={{ display: "flex", gap: 10 }}>
               <button
                 onClick={() => startMatching()}
@@ -1669,11 +1726,3 @@ export default function Page() {
     </div>
   );
 }
-
-    socket.on("profile:error", (e: any) => {
-      const code = String(e?.code ?? "");
-      if (code === "NICK_REQUIRED") setToast("프로필에서 닉네임을 먼저 설정해줘.");
-      else if (code === "NICK_TAKEN") setToast("이미 사용 중인 닉네임이야. 다른 닉네임으로 설정해줘.");
-      else setToast("프로필 설정을 확인해줘.");
-    });
-
