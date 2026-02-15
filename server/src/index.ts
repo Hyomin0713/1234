@@ -281,6 +281,8 @@ io.on("connection", (socket) => {
       const party = STORE.getParty(requestedPartyId);
       if (party && party.ownerId === u.id) partyId = party.id;
 
+    }
+
 
     if (partyId) {
       const party = STORE.getParty(partyId);
