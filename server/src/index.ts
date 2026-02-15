@@ -243,50 +243,87 @@ app.get("/auth/discord/callback", rateLimit({ windowMs: 60_000, max: 30 }), asyn
 app.get("/api/profile", (req, res) => {
   const auth = requireAuth(req, res);
   if (!auth) return;
-
   const u = auth.user;
-  const meProfile = USERS.get(u.id);
+  const cur = USERS.get(u.id);
+  res.json({
+    profile: cur ?? {
+      userId: u.id,
+      displayName: "",
+      level: 1,
+      job: "전사",
+      power: 0,
+      blacklist: [],
+      updatedAt: Date.now()
+    }
+  });
+});
+
+io.on("connection", (socket) => {
+
+  socket.on("queue:join", (p: any) => {
+    const u = ensureLoggedIn();
+    if (!u) return;
+
+    const meProfile = USERS.get(u.id);
     if (!meProfile?.displayName) {
       socket.emit("profile:error", { code: "NICK_REQUIRED" });
       return;
     }
+    if (!USERS.isNameAvailable(u.id, meProfile.displayName)) {
+      socket.emit("profile:error", { code: "NICK_TAKEN" });
+      return;
+    }
     const displayName = meProfile.displayName;
 
-    const requestedPartyId = String(p?.partyId ?? "").trim();
     let partyId: string | undefined = undefined;
+    const requestedPartyId = String(p?.partyId ?? "").trim();
     if (requestedPartyId) {
       const party = STORE.getParty(requestedPartyId);
       if (party && party.ownerId === u.id) partyId = party.id;
+
+
+    if (partyId) {
+      const party = STORE.getParty(partyId);
+      if (party && party.ownerId === u.id && party.matchingPaused) {
+        socket.emit("queue:toast", { type: "info", message: "파티장이 매칭을 재개해야 합니다." });
+        socket.emit("queue:status", { state: "idle" });
+        return;
+      }
+      if (party && (party.members?.length ?? 0) >= 6) {
+        socket.emit("queue:toast", { type: "info", message: "파티가 가득 찼습니다." });
+        socket.emit("queue:status", { state: "idle" });
+        return;
+      }
     }
+
+    const huntingGroundId = String(p?.huntingGroundId ?? "octopus").trim() || "octopus";
 
     const up = QUEUE.upsert(socket.id, huntingGroundId, {
       userId: u.id,
       displayName,
-      level: Number(p?.level ?? 1),
-      job: p?.job ?? "전사",
-      power: Number(p?.power ?? 0),
-      blacklist: Array.isArray(p?.blacklist) ? p.blacklist : [],
+      level: Number(meProfile.level ?? 1),
+      job: meProfile.job ?? "전사",
+      power: Number(meProfile.power ?? 0),
+      blacklist: Array.isArray(meProfile.blacklist) ? meProfile.blacklist : [],
       partyId,
     } as any);
 
     if (!up.ok) return;
 
     socket.emit("queue:status", { state: "searching" });
-
     broadcastQueueCounts();
 
     const matched = QUEUE.tryMatch(huntingGroundId, resolveNameToId);
     if (matched.ok) {
-
       try {
         const leaderId = matched.leaderId;
         const leaderEntry = matched.a.userId === leaderId ? matched.a : matched.b;
         const otherEntry = leaderEntry === matched.a ? matched.b : matched.a;
 
+        let pid = String((leaderEntry as any).partyId ?? "").trim();
+        let party = pid ? STORE.getParty(pid) : null;
 
-        let partyId = String((leaderEntry as any).partyId ?? "").trim();
-        let party = partyId ? STORE.getParty(partyId) : null;
-        if (!party || party.ownerId !== leaderId || (party.members?.length ?? 0) >= 6) {
+        if (!party || party.ownerId !== leaderId) {
           party = STORE.createParty({
             ownerId: leaderId,
             ownerName: leaderEntry.displayName,
@@ -298,39 +335,86 @@ app.get("/api/profile", (req, res) => {
             groundName: `사냥터 ${huntingGroundId}`,
             lockPassword: null
           });
-          partyId = party.id;
+          pid = party.id;
         }
 
-        STORE.joinParty({
-          partyId,
-          userId: otherEntry.userId,
-          name: otherEntry.displayName,
-          level: Number(otherEntry.level ?? 1),
-          job: (otherEntry.job as any) ?? "전사",
-          power: Number(otherEntry.power ?? 0),
-        });
+        if ((party.members?.length ?? 0) < 6) {
+          STORE.joinParty({
+            partyId: pid,
+            userId: otherEntry.userId,
+            name: otherEntry.displayName,
+            level: Number(otherEntry.level ?? 1),
+            job: (otherEntry.job as any) ?? "전사",
+            power: Number(otherEntry.power ?? 0),
+          });
+        }
 
-
-        QUEUE.setPartyForMatch(matched.matchId, partyId);
-
+        QUEUE.setPartyForMatch(matched.matchId, pid);
 
         const sa = io.sockets.sockets.get(matched.a.socketId);
         const sb = io.sockets.sockets.get(matched.b.socketId);
-        sa?.join(partyId);
-        sb?.join(partyId);
-        broadcastParty(partyId);
+        sa?.join(pid);
+        sb?.join(pid);
+        broadcastParty(pid);
+
+        const after = STORE.getParty(pid);
+        if (after && (after.members?.length ?? 0) >= 6) {
+          after.wasFullOnce = true;
+          after.matchingPaused = false;
+          QUEUE.leave(leaderId);
+          emitQueueStatus(leaderId);
+        }
       } catch (e) {
         console.error("[queue] failed to auto-create party", e);
       }
 
       emitQueueStatus(matched.a.userId, matched.a.socketId);
       emitQueueStatus(matched.b.userId, matched.b.socketId);
-
       broadcastQueueCounts();
     }
   });
 
-  socket.on("queue:setChannel", (p: any) => {
+  socket.on("party:startMatching", (p: any) => {
+    const u = ensureLoggedIn();
+    if (!u) return;
+    const partyId = String(p?.partyId ?? "").trim();
+    if (!partyId) return;
+    const party = STORE.getParty(partyId);
+    if (!party || party.ownerId !== u.id) return;
+    if ((party.members?.length ?? 0) >= 6) return;
+
+    party.matchingPaused = false;
+    party.updatedAt = Date.now();
+    broadcastParty(partyId);
+
+    const huntingGroundId = String(p?.huntingGroundId ?? party.groundId ?? "octopus").trim() || "octopus";
+
+    const meProfile = USERS.get(u.id);
+    if (!meProfile?.displayName) {
+      socket.emit("profile:error", { code: "NICK_REQUIRED" });
+      return;
+    }
+    if (!USERS.isNameAvailable(u.id, meProfile.displayName)) {
+      socket.emit("profile:error", { code: "NICK_TAKEN" });
+      return;
+    }
+
+    const up = QUEUE.upsert(socket.id, huntingGroundId, {
+      userId: u.id,
+      displayName: meProfile.displayName,
+      level: Number(meProfile.level ?? 1),
+      job: meProfile.job ?? "전사",
+      power: Number(meProfile.power ?? 0),
+      blacklist: Array.isArray(meProfile.blacklist) ? meProfile.blacklist : [],
+      partyId,
+    } as any);
+
+    if (!up.ok) return;
+    socket.emit("queue:status", { state: "searching" });
+    broadcastQueueCounts();
+  });
+
+socket.on("queue:setChannel", (p: any) => {
     const u = ensureLoggedIn();
     if (!u) return;
 

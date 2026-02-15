@@ -149,7 +149,6 @@ export class QueueStore {
     cur.matchId = undefined;
     cur.leaderId = undefined;
     cur.channel = undefined;
-    cur.partyId = undefined;
     cur.updatedAt = Date.now();
     this.byUserId.set(uid, cur);
     return { ok: true as const, entry: cur };

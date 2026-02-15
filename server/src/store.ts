@@ -19,6 +19,8 @@ export type Party = {
   isLocked: boolean;
   lockPasswordHash: string | null;
   members: PartyMember[];
+  wasFullOnce: boolean;
+  matchingPaused: boolean;
   createdAt: number;
   updatedAt: number;
 };
@@ -77,6 +79,8 @@ class PartyStore {
           buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 }
         }
       ],
+      wasFullOnce: false,
+      matchingPaused: false,
       createdAt: now,
       updatedAt: now
     };
@@ -164,6 +168,9 @@ class PartyStore {
       };
 
       p.updatedAt = Date.now();
+    if (p.wasFullOnce && p.members.length > 0 && p.members.length < PARTY_MAX_MEMBERS) {
+      p.matchingPaused = true;
+    }
       touched.push(pid);
     }
     return touched;
@@ -197,6 +204,10 @@ class PartyStore {
 
     const p = this.ensureMember(args.partyId, args.userId, args.name, { level: args.level, job: args.job, power: args.power });
     if (!p) throw new Error("NOT_FOUND");
+    if ((p.members?.length ?? 0) >= PARTY_MAX_MEMBERS) {
+      p.wasFullOnce = true;
+      p.matchingPaused = false;
+    }
     return p;
   }
 

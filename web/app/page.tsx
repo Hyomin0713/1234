@@ -635,6 +635,11 @@ export default function Page() {
   const joinQueue = (opts?: { partyId?: string | null }) => {
     const sck = socketRef.current;
     if (!sck) return;
+
+    if (party?.matchingPaused && isLeader && (party?.members?.length ?? 0) < 6) {
+      sck.emit("party:startMatching", { partyId: party.id, huntingGroundId: selectedId });
+      return;
+    }
     setMatchState("searching");
     setChannel("");
     setIsLeader(false);
