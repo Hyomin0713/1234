@@ -19,7 +19,6 @@ function randCode(len = 6) {
     return out;
 }
 function hash(pw) {
-    // very light hash (NOT for high security); ok for hobby project
     let h = 0;
     for (let i = 0; i < pw.length; i++)
         h = (h * 31 + pw.charCodeAt(i)) >>> 0;
@@ -40,6 +39,11 @@ class PartyStore {
             groundName: (args.groundName ?? null),
             isLocked: false,
             lockPasswordHash: null,
+            buffReq: {
+                simbi: { min: 0, max: 6 },
+                ppeongbi: { min: 0, max: 6 },
+                syapbi: { min: 0, max: 6 }
+            },
             members: [
                 {
                     userId: args.ownerId,
@@ -52,9 +56,34 @@ class PartyStore {
                     buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 }
                 }
             ],
+            wasFullOnce: false,
+            matchingPaused: false,
             createdAt: now,
             updatedAt: now
         };
+        if (args.buffReq && typeof args.buffReq === "object") {
+            const clamp = (n) => {
+                const v = Math.floor(Number(n));
+                if (!Number.isFinite(v))
+                    return 0;
+                return Math.max(0, Math.min(6, v));
+            };
+            const r = args.buffReq;
+            const sim = r.simbi ?? {};
+            const pp = r.ppeongbi ?? {};
+            const sy = r.syapbi ?? {};
+            const simMin = clamp(sim.min);
+            const simMax = clamp(sim.max);
+            const ppMin = clamp(pp.min);
+            const ppMax = clamp(pp.max);
+            const syMin = clamp(sy.min);
+            const syMax = clamp(sy.max);
+            party.buffReq = {
+                simbi: { min: Math.min(simMin, simMax), max: Math.max(simMin, simMax) },
+                ppeongbi: { min: Math.min(ppMin, ppMax), max: Math.max(ppMin, ppMax) },
+                syapbi: { min: Math.min(syMin, syMax), max: Math.max(syMin, syMax) }
+            };
+        }
         if (args.lockPassword) {
             party.isLocked = true;
             party.lockPasswordHash = hash(args.lockPassword);
@@ -70,6 +99,7 @@ class PartyStore {
             groundId: p.groundId,
             groundName: p.groundName,
             isLocked: p.isLocked,
+            buffReq: p.buffReq,
             memberCount: p.members.length,
             updatedAt: p.updatedAt
         }));
@@ -84,19 +114,37 @@ class PartyStore {
         const p = this.parties.get(partyId);
         if (!p)
             return null;
-        // remove duplicates
-        p.members = p.members.filter((m) => m.userId !== userId);
-        p.members.push({
-            userId,
-            name,
-            level: Math.max(1, Math.min(300, Math.floor(Number(profile?.level ?? 1) || 1))),
-            job: (profile?.job ?? "전사"),
-            power: Math.max(0, Math.min(9_999_999, Math.floor(Number(profile?.power ?? 0) || 0))),
-            joinedAt: Date.now(),
-            lastSeenAt: Date.now(),
-            buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 }
-        });
-        p.updatedAt = Date.now();
+        const now = Date.now();
+        const idx = p.members.findIndex((m) => m.userId === userId);
+        const nextLevel = Math.max(1, Math.min(300, Math.floor(Number(profile?.level ?? 1) || 1)));
+        const nextJob = (profile?.job ?? "전사");
+        const nextPower = Math.max(0, Math.min(9_999_999, Math.floor(Number(profile?.power ?? 0) || 0)));
+        if (idx >= 0) {
+            const prev = p.members[idx];
+            p.members[idx] = {
+                ...prev,
+                name,
+                level: nextLevel,
+                job: nextJob,
+                power: nextPower,
+                lastSeenAt: now,
+            };
+        }
+        else {
+            if (p.members.length >= PARTY_MAX_MEMBERS)
+                return null;
+            p.members.push({
+                userId,
+                name,
+                level: nextLevel,
+                job: nextJob,
+                power: nextPower,
+                joinedAt: now,
+                lastSeenAt: now,
+                buffs: { simbi: 0, ppeongbi: 0, syapbi: 0 }
+            });
+        }
+        p.updatedAt = now;
         return p;
     }
     updateMemberProfile(userId, patch) {
@@ -113,8 +161,10 @@ class PartyStore {
                 job: (patch.job ?? m.job),
                 power: patch.power != null ? Math.max(0, Math.min(9_999_999, Math.floor(Number(patch.power) || 0))) : m.power,
             };
-            // owner name is derived from member display in UI, so keep ownerId only.
             p.updatedAt = Date.now();
+            if (p.wasFullOnce && p.members.length > 0 && p.members.length < PARTY_MAX_MEMBERS) {
+                p.matchingPaused = true;
+            }
             touched.push(pid);
         }
         return touched;
@@ -134,7 +184,6 @@ class PartyStore {
         }
         return p;
     }
-    // groundId/groundName are accepted for forward-compatibility (some clients send them) but are not required to join.
     joinParty(args) {
         const chk = this.canJoin(args.partyId, args.lockPassword ?? undefined);
         if (!chk.ok)
@@ -148,6 +197,10 @@ class PartyStore {
         const p = this.ensureMember(args.partyId, args.userId, args.name, { level: args.level, job: args.job, power: args.power });
         if (!p)
             throw new Error("NOT_FOUND");
+        if ((p.members?.length ?? 0) >= PARTY_MAX_MEMBERS) {
+            p.wasFullOnce = true;
+            p.matchingPaused = false;
+        }
         return p;
     }
     rejoin(args) {
@@ -155,11 +208,9 @@ class PartyStore {
         if (!p)
             throw new Error("NOT_FOUND");
         const already = p.members.some((m) => m.userId === args.userId);
-        if (!already) {
-            if (p.members.length >= PARTY_MAX_MEMBERS)
-                throw new Error("FULL");
-            this.ensureMember(args.partyId, args.userId, args.name, { level: args.level, job: args.job, power: args.power });
-        }
+        if (!already && p.members.length >= PARTY_MAX_MEMBERS)
+            throw new Error("FULL");
+        this.ensureMember(args.partyId, args.userId, args.name, { level: args.level, job: args.job, power: args.power });
         return this.getParty(args.partyId);
     }
     leaveParty(args) {
@@ -192,6 +243,11 @@ class PartyStore {
         return p;
     }
     updateBuffs(args) {
+        const p = this.getParty(args.partyId);
+        if (!p)
+            throw new Error("NOT_FOUND");
+        if (p.ownerId !== args.userId)
+            throw new Error("NOT_OWNER");
         const out = this.setBuffs(args.partyId, args.userId, args.buffs);
         if (!out)
             throw new Error("NOT_FOUND");
@@ -284,12 +340,10 @@ class PartyStore {
         p.updatedAt = Date.now();
         return p;
     }
-    /** Remove stale members who haven't heartbeated recently. Returns partyIds that changed. */
     sweepStaleMembers(opts) {
         const now = Date.now();
         const changed = new Set();
         for (const [partyId, p] of this.parties.entries()) {
-            // party-level TTL: if no member has been seen within partyTtlMs, drop the party
             const newestSeen = p.members.reduce((mx, m) => Math.max(mx, m.lastSeenAt ?? m.joinedAt), 0);
             if (now - newestSeen > opts.partyTtlMs) {
                 this.parties.delete(partyId);
@@ -299,7 +353,6 @@ class PartyStore {
             const before = p.members.length;
             p.members = p.members.filter((m) => now - (m.lastSeenAt ?? m.joinedAt) <= opts.memberTtlMs);
             if (p.members.length !== before) {
-                // owner delegation if owner got removed
                 if (!p.members.some((m) => m.userId === p.ownerId)) {
                     p.ownerId = pickNextOwnerId(p.members);
                 }

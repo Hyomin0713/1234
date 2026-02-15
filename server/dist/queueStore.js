@@ -2,8 +2,8 @@ function randMatchId() {
     return `m_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
 }
 function randChannel() {
-    const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); // A-Z
-    const num = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0"); // 001-999
+    const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26));
+    const num = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0");
     return `${letter}-${num}`;
 }
 function normStr(s, max = 64) {
@@ -23,7 +23,6 @@ function clamp(n, lo, hi) {
         return lo;
     return Math.max(lo, Math.min(hi, Math.floor(v)));
 }
-
 function extractDiscordId(s) {
     const raw = String(s ?? "").trim();
     const m = raw.match(/(\d{15,20})/);
@@ -32,13 +31,12 @@ function extractDiscordId(s) {
 function normNameKey(s) {
     return normStr(s, 64).toLowerCase();
 }
-
 function hasMutualBlock(a, b, resolveNameToId) {
     const aIds = new Set();
     const bIds = new Set();
     const aNames = new Set();
     const bNames = new Set();
-    for (const x of (a.blacklist ?? [])) {
+    for (const x of a.blacklist ?? []) {
         const raw = normStr(x, 64);
         if (!raw)
             continue;
@@ -47,7 +45,7 @@ function hasMutualBlock(a, b, resolveNameToId) {
             aIds.add(id);
         aNames.add(raw.toLowerCase());
     }
-    for (const x of (b.blacklist ?? [])) {
+    for (const x of b.blacklist ?? []) {
         const raw = normStr(x, 64);
         if (!raw)
             continue;
@@ -67,11 +65,9 @@ function hasMutualBlock(a, b, resolveNameToId) {
     return false;
 }
 export class QueueStore {
-    // userId -> entry
     byUserId = new Map();
-    // groundId -> EMA avg wait ms
     avgWaitMsByGround = new Map();
-    EMA_ALPHA = 0.25; // higher = more reactive
+    EMA_ALPHA = 0.25;
     get(userId) {
         return this.byUserId.get(normStr(userId, 64));
     }
@@ -79,6 +75,7 @@ export class QueueStore {
         this.byUserId.delete(normStr(userId, 64));
     }
     upsert(socketId, huntingGroundId, profile) {
+        const pid = normStr(profile.partyId ?? "", 64);
         const userId = normStr(profile.userId ?? "", 64);
         if (!userId)
             return { ok: false, error: "missing_user" };
@@ -97,7 +94,7 @@ export class QueueStore {
             huntingGroundId: hg,
             state: "searching",
             searchingSince: Date.now(),
-            partyId: undefined,
+            partyId: pid || undefined,
             updatedAt: Date.now()
         };
         this.byUserId.set(userId, next);
@@ -113,7 +110,6 @@ export class QueueStore {
         cur.matchId = undefined;
         cur.leaderId = undefined;
         cur.channel = undefined;
-        cur.partyId = undefined;
         cur.updatedAt = Date.now();
         this.byUserId.set(uid, cur);
         return { ok: true, entry: cur };
@@ -142,10 +138,6 @@ export class QueueStore {
         xs.sort((a, b) => b.updatedAt - a.updatedAt);
         return xs;
     }
-    /**
-     * Return counts of active queue entries (searching+matched) grouped by huntingGroundId.
-     * Useful for UI to show "현재 큐 n명".
-     */
     getCountsByGround() {
         const counts = {};
         for (const e of this.byUserId.values()) {
@@ -157,7 +149,6 @@ export class QueueStore {
         }
         return counts;
     }
-    // naive match: pair up the oldest two searching users who are not mutually blocked
     tryMatch(huntingGroundId, resolveNameToId) {
         const xs = this.listByGround(huntingGroundId).filter((e) => e.state === "searching");
         for (let i = xs.length - 1; i >= 0; i--) {
@@ -168,10 +159,8 @@ export class QueueStore {
                     continue;
                 if (hasMutualBlock(a, b, resolveNameToId))
                     continue;
-                // Leader sets the channel after matching.
                 const matchId = randMatchId();
                 const leaderId = a.userId;
-                // track wait time (best-effort)
                 const now = Date.now();
                 const aSince = a.searchingSince ?? now;
                 const bSince = b.searchingSince ?? now;
@@ -237,10 +226,6 @@ export class QueueStore {
         }
         return { ok: true, matchId, channel: ch, members };
     }
-    /**
-     * Clear queue entries that reference parties that no longer exist.
-     * This prevents clients from being stuck with a stale partyId after TTL/disband.
-     */
     cleanupDanglingParties(partyExists) {
         const now = Date.now();
         const cleaned = [];

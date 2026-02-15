@@ -1,5 +1,5 @@
 const SESSIONS = new Map();
-const TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+const TTL_MS = 1000 * 60 * 60 * 24 * 7;
 function randId(len = 32) {
     const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let out = "";

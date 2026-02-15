@@ -62,10 +62,6 @@ export class UserStore {
     return this.nameToId.get(t) ?? this.nameToId.get(t.toLowerCase()) ?? null;
   }
 
-  get(userId: string) {
-    return this.byId.get(normStr(userId, 64));
-  }
-
   upsert(userId: string, patch: Partial<UserProfile>) {
     const uid = normStr(userId, 64);
     if (!uid) return null;

@@ -15,8 +15,8 @@ function makePartyId() {
     return out;
 }
 export class PartyStore {
-    parties = new Map(); // partyId -> Party
-    userToParty = new Map(); // userId -> partyId
+    parties = new Map();
+    userToParty = new Map();
     getParty(partyId) {
         return this.parties.get(normStr(partyId, 16));
     }
@@ -107,7 +107,6 @@ export class PartyStore {
 export const PARTY = new PartyStore();
 function isValidChannel(s) {
     const t = String(s ?? "").trim().toUpperCase();
-    // A-Z-001..999
     if (!/^[A-Z]-\d{3}$/.test(t))
         return null;
     const num = Number(t.split("-")[1]);

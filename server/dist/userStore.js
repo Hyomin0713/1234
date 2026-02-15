@@ -18,6 +18,12 @@ function clamp(n, lo, hi) {
 export class UserStore {
     byId = new Map();
     nameToId = new Map();
+    get(userId) {
+        const uid = normStr(userId, 64);
+        if (!uid)
+            return null;
+        return this.byId.get(uid) ?? null;
+    }
     rememberName(userId, displayName) {
         const uid = normStr(userId, 64);
         const name = normStr(displayName, 64);
@@ -26,6 +32,15 @@ export class UserStore {
         this.nameToId.set(name, uid);
         this.nameToId.set(name.toLowerCase(), uid);
     }
+    isNameAvailable(userId, displayName) {
+        const uid = normStr(userId, 64);
+        const name = normStr(displayName, 64);
+        if (!uid || !name)
+            return true;
+        const key = name.toLowerCase();
+        const existing = this.nameToId.get(key);
+        return !existing || existing === uid;
+    }
     resolveNameToId(s) {
         const t = normStr(s, 64);
         if (!t)
@@ -33,9 +48,6 @@ export class UserStore {
         if (/^[0-9]{5,}$/.test(t))
             return t;
         return this.nameToId.get(t) ?? this.nameToId.get(t.toLowerCase()) ?? null;
-    }
-    get(userId) {
-        return this.byId.get(normStr(userId, 64));
     }
     upsert(userId, patch) {
         const uid = normStr(userId, 64);

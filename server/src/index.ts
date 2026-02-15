@@ -158,6 +158,78 @@ function setSessionCookie(res: express.Response, sessionId: string) {
   );
 }
 
+const socketToUserId = new Map<string, string>();
+
+function extractSessionIdFromSocket(socket: any): string | undefined {
+  const cookie = socket?.handshake?.headers?.cookie as string | undefined;
+  const cookies = parseCookies(cookie);
+  const fromCookie = cookies["ml_session"];
+  if (fromCookie) return fromCookie;
+  const fromHeader = (socket?.handshake?.headers?.["x-ml-session"] as string | undefined) ?? undefined;
+  if (fromHeader && typeof fromHeader === "string") return fromHeader;
+  return undefined;
+}
+
+function requireSocketUser(socket: any): DiscordUser | null {
+  const sid = extractSessionIdFromSocket(socket);
+  const s = getSession(sid);
+  if (!s) return null;
+  socketToUserId.set(socket.id, s.user.id);
+  return s.user;
+}
+
+function emitQueueStatus(userId: string, socketId?: string) {
+  const e = QUEUE.get(userId);
+  const sid = socketId ?? e?.socketId;
+  if (!sid) return;
+  if (!e || e.state === "idle") {
+    io.to(sid).emit("queue:status", { state: "idle" });
+    return;
+  }
+  if (e.state === "searching") {
+    io.to(sid).emit("queue:status", {
+      state: "searching",
+      huntingGroundId: e.huntingGroundId,
+      since: e.searchingSince ?? Date.now(),
+      partyId: (e as any).partyId ?? null,
+    });
+    return;
+  }
+  io.to(sid).emit("queue:status", {
+    state: "matched",
+    matchId: e.matchId ?? null,
+    leaderId: e.leaderId ?? null,
+    isLeader: e.userId === e.leaderId,
+    channel: e.channel ?? null,
+    channelReady: Boolean(e.channel),
+    partyId: (e as any).partyId ?? null,
+    huntingGroundId: e.huntingGroundId,
+  });
+}
+
+function cleanupPartyMembership(userId: string) {
+  const uid = String(userId ?? "").trim();
+  if (!uid) return;
+  const parties = STORE.listParties();
+  for (const ps of parties) {
+    const p = STORE.getParty(ps.id);
+    if (!p) continue;
+    const has = (p.members ?? []).some((m: any) => m.userId === uid);
+    if (!has) continue;
+    const next = STORE.leaveParty({ partyId: p.id, userId: uid });
+    if (!next) {
+      io.to(p.id).emit("partyDeleted", { partyId: p.id });
+      broadcastParties();
+      continue;
+    }
+    if (next.wasFullOnce && (next.members?.length ?? 0) > 0 && (next.members?.length ?? 0) < 6) {
+      next.matchingPaused = true;
+      next.updatedAt = Date.now();
+    }
+    broadcastParty(p.id);
+  }
+}
+
 function requireAuth(req: express.Request, res: express.Response): { user: DiscordUser; sessionId: string } | null {
   const sid = extractSessionId(req);
   const s = getSession(sid);
@@ -259,6 +331,16 @@ app.get("/api/profile", (req, res) => {
 });
 
 io.on("connection", (socket) => {
+
+  const ensureLoggedIn = () => {
+    const u = requireSocketUser(socket);
+    if (!u) {
+      socket.emit("queue:toast", { type: "error", message: "로그인이 필요합니다." });
+      socket.emit("queue:status", { state: "idle" });
+      return null;
+    }
+    return u;
+  };
 
   socket.on("queue:join", (p: any) => {
     const u = ensureLoggedIn();
