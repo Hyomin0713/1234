@@ -400,9 +400,9 @@ export default function Page() {
 
     sck.on("profile:error", (e: any) => {
       const code = String(e?.code ?? "");
-      if (code === "NICK_REQUIRED") setToast({ text: "프로필에서 닉네임을 먼저 설정해줘.", kind: "error" });
-      else if (code === "NICK_TAKEN") setToast({ text: "이미 사용 중인 닉네임이야. 다른 닉네임으로 설정해줘.", kind: "error" });
-      else setToast({ text: "프로필 설정을 확인해줘.", kind: "error" });
+      if (code === "NICK_REQUIRED") setToast({ type: "err", msg: "프로필에서 닉네임을 먼저 설정해줘." });
+      else if (code === "NICK_TAKEN") setToast({ type: "err", msg: "이미 사용 중인 닉네임이야. 다른 닉네임으로 설정해줘." });
+      else setToast({ type: "err", msg: "프로필 설정을 확인해줘." });
     });
 
 
