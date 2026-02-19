@@ -1,74 +1,81 @@
-export type Job = "전사" | "도적" | "궁수" | "마법사" | "";
-
-export type BuffRange = { min: number; max: number };
-
-export type PartyBuffs = {
-  sim: BuffRange;
-  ppeong: BuffRange;
-  sharp: BuffRange;
-};
-
+// server/src/userStore.ts
 export type UserProfile = {
-  userId: string;
-  discordName: string;
-  nickname: string; // 메랜큐 표시용
-  level: number;
-  job: Job;
-  atk: number; // 스공(간단히 number)
-  blacklist: string[]; // userId 리스트
+  sid: string;
+  discordId?: string;
+  username?: string;
+  nickname?: string;
+  level?: number;
+  job?: string;
+  power?: number;
+  blacklist: string[];
 };
 
-const users = new Map<string, UserProfile>();
-
-function normNick(s: string) {
-  return s.trim();
+function norm(s?: string) {
+  return (s ?? "").trim().toLowerCase();
 }
 
-export function getUser(userId: string): UserProfile | null {
-  return users.get(userId) || null;
-}
+export class UserStore {
+  private bySid = new Map<string, UserProfile>();
+  private nicknameToSid = new Map<string, string>();
 
-export function isNicknameAvailable(nickname: string, exceptUserId?: string) {
-  const n = normNick(nickname);
-  if (!n) return false;
-  for (const u of users.values()) {
-    if (exceptUserId && u.userId === exceptUserId) continue;
-    if (normNick(u.nickname) === n) return false;
+  get(sid: string) {
+    return this.bySid.get(sid);
   }
-  return true;
+
+  isNameAvailable(nickname: string, sid?: string) {
+    const key = norm(nickname);
+    if (!key) return false;
+    const owner = this.nicknameToSid.get(key);
+    if (!owner) return true;
+    return sid ? owner === sid : false;
+  }
+
+  upsert(input: Partial<UserProfile> & { sid: string }) {
+    const prev = this.bySid.get(input.sid);
+    const next: UserProfile = {
+      sid: input.sid,
+      discordId: input.discordId ?? prev?.discordId,
+      username: input.username ?? prev?.username,
+      nickname: input.nickname ?? prev?.nickname,
+      level: input.level ?? prev?.level,
+      job: input.job ?? prev?.job,
+      power: input.power ?? prev?.power,
+      blacklist: input.blacklist ?? prev?.blacklist ?? [],
+    };
+
+    const prevNick = norm(prev?.nickname);
+    const nextNick = norm(next.nickname);
+
+    if (prevNick && prevNick !== nextNick) {
+      const owner = this.nicknameToSid.get(prevNick);
+      if (owner === next.sid) this.nicknameToSid.delete(prevNick);
+    }
+    if (nextNick) this.nicknameToSid.set(nextNick, next.sid);
+
+    this.bySid.set(next.sid, next);
+    return next;
+  }
+
+  addToBlacklist(sid: string, value: string) {
+    const u = this.bySid.get(sid);
+    if (!u) return;
+    const v = norm(value);
+    if (!v) return;
+    const xs = new Set((u.blacklist ?? []).map(norm));
+    xs.add(v);
+    u.blacklist = Array.from(xs);
+  }
+
+  remove(sid: string) {
+    const prev = this.bySid.get(sid);
+    if (!prev) return;
+    const prevNick = norm(prev.nickname);
+    if (prevNick) {
+      const owner = this.nicknameToSid.get(prevNick);
+      if (owner === sid) this.nicknameToSid.delete(prevNick);
+    }
+    this.bySid.delete(sid);
+  }
 }
 
-export function upsertUser(input: Partial<UserProfile> & { userId: string; discordName: string }) {
-  const prev = users.get(input.userId);
-  const next: UserProfile = {
-    userId: input.userId,
-    discordName: input.discordName,
-    nickname: input.nickname ?? prev?.nickname ?? "",
-    level: input.level ?? prev?.level ?? 1,
-    job: (input.job ?? prev?.job ?? "") as any,
-    atk: input.atk ?? prev?.atk ?? 0,
-    blacklist: input.blacklist ?? prev?.blacklist ?? [],
-  };
-  users.set(input.userId, next);
-  return next;
-}
-
-export function setNickname(userId: string, nickname: string, discordName: string) {
-  const n = normNick(nickname);
-  if (!n) throw new Error("NICK_REQUIRED");
-  if (!isNicknameAvailable(n, userId)) throw new Error("NICK_TAKEN");
-  return upsertUser({ userId, discordName, nickname: n });
-}
-
-export function addToBlacklist(userId: string, targetUserId: string, discordName: string) {
-  const u = upsertUser({ userId, discordName });
-  if (!u.blacklist.includes(targetUserId)) u.blacklist.push(targetUserId);
-  return u;
-}
-
-export function removeFromBlacklist(userId: string, targetUserId: string, discordName: string) {
-  const u = upsertUser({ userId, discordName });
-  u.blacklist = u.blacklist.filter((x) => x !== targetUserId);
-  users.set(userId, u);
-  return u;
-}
+export const USERS = new UserStore();

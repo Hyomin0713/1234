@@ -1,55 +1,42 @@
+// server/src/auth.ts
 import crypto from "crypto";
-import type { Request, Response, NextFunction } from "express";
-
-export type DiscordUser = {
-  id: string;
-  username: string;
-  discriminator?: string;
-  global_name?: string | null;
-  avatar?: string | null;
-};
 
 export type Session = {
-  sid: string;
-  user: DiscordUser;
+  sessionId: string;
+  discordId: string;
+  username: string;
+  nickname?: string;
   createdAt: number;
-  lastSeenAt: number;
+  updatedAt: number;
 };
 
 const COOKIE_NAME = "ml_session";
 const sessions = new Map<string, Session>();
 
-export function getCookieName() {
-  return COOKIE_NAME;
+export function cookieSerialize(name: string, value: string, opts?: {
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: "lax" | "strict" | "none";
+  path?: string;
+  maxAge?: number;
+}) {
+  const parts: string[] = [];
+  parts.push(`${name}=${encodeURIComponent(value)}`);
+  parts.push(`Path=${opts?.path ?? "/"}`);
+  if (opts?.httpOnly ?? true) parts.push("HttpOnly");
+  if (opts?.secure) parts.push("Secure");
+  parts.push(`SameSite=${opts?.sameSite ?? "Lax"}`);
+  if (typeof opts?.maxAge === "number") parts.push(`Max-Age=${Math.max(0, Math.trunc(opts.maxAge))}`);
+  return parts.join("; ");
 }
 
-export function createSession(user: DiscordUser): Session {
-  const sid = crypto.randomBytes(24).toString("hex");
-  const now = Date.now();
-  const s: Session = { sid, user, createdAt: now, lastSeenAt: now };
-  sessions.set(sid, s);
-  return s;
-}
-
-export function destroySession(sid: string) {
-  sessions.delete(sid);
-}
-
-export function getSession(sid?: string | null): Session | null {
-  if (!sid) return null;
-  const s = sessions.get(sid);
-  if (!s) return null;
-  s.lastSeenAt = Date.now();
-  return s;
-}
-
-function parseCookie(header?: string) {
+export function parseCookies(cookieHeader?: string) {
   const out: Record<string, string> = {};
-  if (!header) return out;
-  const parts = header.split(";");
+  if (!cookieHeader) return out;
+  const parts = cookieHeader.split(";");
   for (const p of parts) {
     const idx = p.indexOf("=");
-    if (idx < 0) continue;
+    if (idx === -1) continue;
     const k = p.slice(0, idx).trim();
     const v = p.slice(idx + 1).trim();
     out[k] = decodeURIComponent(v);
@@ -57,55 +44,78 @@ function parseCookie(header?: string) {
   return out;
 }
 
-export function getSidFromRequest(req: Request): string | null {
-  // 1) explicit header (fallback 방식)
-  const header = req.header("x-ml-session");
-  if (header) return header;
+function newId() {
+  return crypto.randomBytes(16).toString("hex");
+}
 
-  // 2) cookie
-  const cookies = parseCookie(req.header("cookie") || "");
-  if (cookies[COOKIE_NAME]) return cookies[COOKIE_NAME];
+export function newSession(input: { discordId: string; username: string; nickname?: string }) {
+  const t = Date.now();
+  const sessionId = newId();
+  const s: Session = {
+    sessionId,
+    discordId: input.discordId,
+    username: input.username,
+    nickname: input.nickname,
+    createdAt: t,
+    updatedAt: t,
+  };
+  sessions.set(sessionId, s);
+  return s;
+}
 
-  // 3) query (?sid=...)
-  const q = req.query?.sid;
-  if (typeof q === "string" && q) return q;
+export function getSession(sessionId?: string | null) {
+  if (!sessionId) return null;
+  return sessions.get(sessionId) ?? null;
+}
+
+export function deleteSession(sessionId?: string | null) {
+  if (!sessionId) return false;
+  return sessions.delete(sessionId);
+}
+
+export function cleanupSessions(maxAgeMs = 1000 * 60 * 60 * 24 * 7) {
+  const t = Date.now();
+  for (const [sid, s] of sessions) {
+    if (t - s.updatedAt > maxAgeMs) sessions.delete(sid);
+  }
+}
+
+export function readSessionId(req: any): string | null {
+  const hdr = req?.headers?.["x-ml-session"];
+  if (typeof hdr === "string" && hdr.trim()) return hdr.trim();
+
+  const q = req?.query?.sid;
+  if (typeof q === "string" && q.trim()) return q.trim();
+
+  const cookies = parseCookies(req?.headers?.cookie);
+  const c = cookies[COOKIE_NAME];
+  if (c && c.trim()) return c.trim();
 
   return null;
 }
 
-export function setSessionCookie(res: Response, sid: string) {
-  const isProd = process.env.NODE_ENV === "production";
-  // SameSite=Lax + Path=/는 Railway 단일 도메인에 적합
-  // secure는 https 환경에서만 true
-  res.cookie(COOKIE_NAME, sid, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: isProd,
-    path: "/",
-    maxAge: 1000 * 60 * 60 * 24 * 30, // 30d
-  });
+export function setSessionCookie(res: any, sessionId: string, opts: { secure: boolean }) {
+  res.setHeader(
+    "Set-Cookie",
+    cookieSerialize(COOKIE_NAME, sessionId, {
+      httpOnly: true,
+      secure: opts.secure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    })
+  );
 }
 
-export function clearSessionCookie(res: Response) {
-  res.cookie(COOKIE_NAME, "", {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 0,
-  });
-}
-
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const sid = getSidFromRequest(req);
-  const s = getSession(sid);
-  if (!s) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
-  // @ts-expect-error attach
-  req.session = s;
-  next();
-}
-
-export function getAuthedSession(req: Request): Session | null {
-  // @ts-expect-error attached by requireAuth
-  return req.session || null;
+export function clearSessionCookie(res: any, opts: { secure: boolean }) {
+  res.setHeader(
+    "Set-Cookie",
+    cookieSerialize(COOKIE_NAME, "", {
+      httpOnly: true,
+      secure: opts.secure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 0,
+    })
+  );
 }
