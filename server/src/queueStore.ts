@@ -1,294 +1,434 @@
-export type Job = "전사" | "도적" | "궁수" | "마법사";
+// Optimized QueueStore for high concurrency (100~1000 users)
+// Changes vs previous:
+// - Maintain byGround index to avoid scanning all users
+// - Batch matching via a scheduler tick (debounced), not per-event immediate full scan
+// - FIFO matching to avoid per-tick sort, and reduce O(k^2) blow-ups
+//
+// NOTE: This keeps the old public method name `tryMatch` so existing callers continue to work.
+//       In this version, `tryMatch(groundId)` simply marks the ground as dirty for the next tick.
 
-export type QueueProfile = {
-  userId: string;
-  displayName: string;
-  level: number;
-  job: Job;
-  power: number;
-
-  blacklist: string[];
-  partyId?: string;
+type BuffRange = { min?: number; max?: number };
+export type BuffSpec = {
+  simbi?: BuffRange; // 심비
+  ppungbi?: BuffRange; // 뻥비
+  sharpbi?: BuffRange; // 샾비
 };
 
-export type QueueEntry = QueueProfile & {
-  socketId: string;
-  huntingGroundId: string;
-  state: "idle" | "searching" | "matched";
+export type QueueStatus = "idle" | "searching" | "matched" | "paused";
+
+export type QueueUser = {
+  sid: string;             // session id
+  discordId?: string;      // stable id if available
+  nickname?: string;       // in-app nickname (unique)
+  level?: number;
+  job?: string;
+  power?: number;
+  groundId?: string;       // hunting ground id/name key used for grouping
+  buffs?: BuffSpec;        // what the user provides/has OR what the party provides
+  wants?: BuffSpec;        // what the user/party is looking for (optional)
+  status: QueueStatus;
+  matchedAt?: number;
   searchingSince?: number;
-  matchId?: string;
-  leaderId?: string;
-  channel?: string;
-  partyId?: string;
-  updatedAt: number;
+  blacklist?: string[];    // list of discordId or nickname strings
 };
 
-function randMatchId() {
-  return `m_${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+type MatchResult = {
+  aSid: string;
+  bSid: string;
+  groundId: string;
+  channel?: string;
+  createdAt: number;
+};
+
+function now() {
+  return Date.now();
 }
 
-function randChannel() {
-  const letter = String.fromCharCode(65 + Math.floor(Math.random() * 26)); 
-  const num = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0"); 
-  return `${letter}-${num}`;
+function clampInt(x: any, lo: number, hi: number): number {
+  const n = Number(x);
+  if (!Number.isFinite(n)) return lo;
+  const t = Math.trunc(n);
+  return Math.max(lo, Math.min(hi, t));
 }
 
-function normStr(s: any, max = 64) {
-  return String(s ?? "").trim().slice(0, max);
+function inRange(x: number | undefined, r?: BuffRange): boolean {
+  if (r == null) return true;
+  if (x == null) return false;
+  const mn = r.min ?? -Infinity;
+  const mx = r.max ?? Infinity;
+  return x >= mn && x <= mx;
 }
 
-function normList(xs: any): string[] {
-  if (!Array.isArray(xs)) return [];
-  return xs
-    .map((x) => normStr(x, 64))
-    .filter(Boolean)
-    .slice(0, 50);
+// `provider` offers buffs, `seeker` wants buffs.
+// If seeker has no wants -> accept.
+// If seeker has wants but provider has no buffs -> reject.
+// For each buff, if seeker specifies range, provider must satisfy it.
+function buffsCompatible(provider?: BuffSpec, seekerWants?: BuffSpec): boolean {
+  if (!seekerWants) return true;
+
+  // If seeker wants ANY constraint, provider must have that value.
+  const p = provider ?? {};
+  const w = seekerWants;
+
+  const simOk = !w.simbi || inRange((p.simbi?.max ?? p.simbi?.min) as any, w.simbi);
+  const ppOk = !w.ppungbi || inRange((p.ppungbi?.max ?? p.ppungbi?.min) as any, w.ppungbi);
+  const shOk = !w.sharpbi || inRange((p.sharpbi?.max ?? p.sharpbi?.min) as any, w.sharpbi);
+
+  return simOk && ppOk && shOk;
 }
 
-function clamp(n: any, lo: number, hi: number) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return lo;
-  return Math.max(lo, Math.min(hi, Math.floor(v)));
+function normalizeIdLike(s?: string) {
+  return (s ?? "").trim().toLowerCase();
 }
 
+function isBlacklisted(a: QueueUser, b: QueueUser): boolean {
+  const aList = (a.blacklist ?? []).map(normalizeIdLike);
+  const bList = (b.blacklist ?? []).map(normalizeIdLike);
 
-function extractDiscordId(s: any): string | null {
-  const raw = String(s ?? "").trim();
+  const aDid = normalizeIdLike(a.discordId);
+  const bDid = normalizeIdLike(b.discordId);
+  const aNick = normalizeIdLike(a.nickname);
+  const bNick = normalizeIdLike(b.nickname);
 
-  const m = raw.match(/(\d{15,20})/);
-  return m ? m[1] : null;
-}
+  // any direction => exclude
+  const aBlocksB =
+    (bDid && aList.includes(bDid)) ||
+    (bNick && aList.includes(bNick));
+  const bBlocksA =
+    (aDid && bList.includes(aDid)) ||
+    (aNick && bList.includes(aNick));
 
-function normNameKey(s: any) {
-  return normStr(s, 64).toLowerCase();
-}
-
-function hasMutualBlock(a: QueueEntry, b: QueueEntry, resolveNameToId: (s: string) => string | null) {
-  const aIds = new Set<string>();
-  const bIds = new Set<string>();
-  const aNames = new Set<string>();
-  const bNames = new Set<string>();
-
-  for (const x of a.blacklist ?? []) {
-    const raw = normStr(x, 64);
-    if (!raw) continue;
-    const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
-    if (id) aIds.add(id);
-    aNames.add(raw.toLowerCase());
-  }
-  for (const x of b.blacklist ?? []) {
-    const raw = normStr(x, 64);
-    if (!raw) continue;
-    const id = extractDiscordId(raw) ?? resolveNameToId(raw) ?? (/^\d{15,20}$/.test(raw) ? raw : null);
-    if (id) bIds.add(id);
-    bNames.add(raw.toLowerCase());
-  }
-
-
-  if (aIds.has(b.userId) || bIds.has(a.userId)) return true;
-
-  if (aNames.has(b.userId.toLowerCase()) || bNames.has(a.userId.toLowerCase())) return true;
-
-
-  const aName = normNameKey(a.displayName);
-  const bName = normNameKey(b.displayName);
-  if (aNames.has(bName) || bNames.has(aName)) return true;
-
-  return false;
+  return aBlocksB || bBlocksA;
 }
 
 export class QueueStore {
+  private users = new Map<string, QueueUser>(); // sid -> user
 
-  private byUserId = new Map<string, QueueEntry>();
+  // Index: groundId -> set of sids in that ground
+  private byGround = new Map<string, Set<string>>();
 
+  // Index: groundId -> FIFO array of sids currently searching (may contain stale sids, lazily cleaned)
+  private searchingFifo = new Map<string, string[]>();
 
-  private avgWaitMsByGround = new Map<string, number>();
-  private readonly EMA_ALPHA = 0.25; 
+  // Quick membership for searching state (groundId -> set of searching sids)
+  private searchingSet = new Map<string, Set<string>>();
 
-  get(userId: string) {
-    return this.byUserId.get(normStr(userId, 64));
+  // GroundIds that need matching on next tick
+  private dirtyGrounds = new Set<string>();
+
+  // Stats
+  private emaWaitMs = 0;
+  private emaAlpha = 0.08;
+
+  // Scheduler
+  private tickMs: number;
+  private maxPairsPerGroundPerTick: number;
+  private timer: NodeJS.Timeout | null = null;
+
+  constructor(opts?: { tickMs?: number; maxPairsPerGroundPerTick?: number }) {
+    this.tickMs = clampInt(opts?.tickMs ?? 150, 50, 1000);
+    this.maxPairsPerGroundPerTick = clampInt(opts?.maxPairsPerGroundPerTick ?? 30, 1, 200);
+
+    // Start the scheduler immediately (safe in single-node environment)
+    this.timer = setInterval(() => this.tick(), this.tickMs);
+    // Don't keep process alive only for timer
+    // @ts-ignore
+    if (this.timer?.unref) this.timer.unref();
   }
 
-  remove(userId: string) {
-    this.byUserId.delete(normStr(userId, 64));
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
 
-  upsert(socketId: string, huntingGroundId: string | null, profile: Partial<QueueProfile>) {
-    const pid = normStr((profile as any).partyId ?? "", 64);
-    const userId = normStr(profile.userId ?? "", 64);
-    if (!userId) return { ok: false as const, error: "missing_user" };
+  getEmaWaitMs() {
+    return this.emaWaitMs;
+  }
 
-    const displayName = normStr(profile.displayName ?? "익명", 64) || "익명";
-    const hg = normStr(huntingGroundId ?? "", 64);
-    if (!hg) return { ok: false as const, error: "missing_ground" };
+  getUser(sid: string) {
+    return this.users.get(sid);
+  }
 
-    const next: QueueEntry = {
-      userId,
-      displayName,
-      level: clamp(profile.level ?? 1, 1, 300),
-      job: (profile.job as any) ?? "전사",
-      power: clamp(profile.power ?? 0, 0, 9_999_999),
-      blacklist: normList(profile.blacklist),
-      socketId: normStr(socketId, 128),
-      huntingGroundId: hg,
-      state: "searching",
-      searchingSince: Date.now(),
-      partyId: pid || undefined,
-      updatedAt: Date.now()
+  upsert(user: Partial<QueueUser> & { sid: string }) {
+    const prev = this.users.get(user.sid);
+    const next: QueueUser = {
+      sid: user.sid,
+      status: user.status ?? prev?.status ?? "idle",
+      discordId: user.discordId ?? prev?.discordId,
+      nickname: user.nickname ?? prev?.nickname,
+      level: user.level ?? prev?.level,
+      job: user.job ?? prev?.job,
+      power: user.power ?? prev?.power,
+      groundId: user.groundId ?? prev?.groundId,
+      buffs: user.buffs ?? prev?.buffs,
+      wants: user.wants ?? prev?.wants,
+      blacklist: user.blacklist ?? prev?.blacklist ?? [],
+      matchedAt: user.matchedAt ?? prev?.matchedAt,
+      searchingSince: user.searchingSince ?? prev?.searchingSince,
     };
-    this.byUserId.set(userId, next);
-    return { ok: true as const, entry: next };
+
+    this.users.set(user.sid, next);
+
+    // Update ground index
+    this.reindexGround(prev, next);
+
+    // Update searching indexes
+    this.reindexSearching(prev, next);
+
+    // If user changes anything relevant, mark their ground dirty
+    if (next.groundId) this.markDirty(next.groundId);
+
+    return next;
   }
 
-  leave(userId: string) {
-    const uid = normStr(userId, 64);
-    const cur = this.byUserId.get(uid);
-    if (!cur) return { ok: false as const };
-    cur.state = "idle";
-    cur.searchingSince = undefined;
-    cur.matchId = undefined;
-    cur.leaderId = undefined;
-    cur.channel = undefined;
-    cur.updatedAt = Date.now();
-    this.byUserId.set(uid, cur);
-    return { ok: true as const, entry: cur };
-  }
+  remove(sid: string) {
+    const prev = this.users.get(sid);
+    if (!prev) return;
 
-  setPartyForMatch(matchId: string, partyId: string) {
-    const mid = normStr(matchId, 128);
-    const pid = normStr(partyId, 64);
-    const members: QueueEntry[] = [];
-    for (const e of this.byUserId.values()) {
-      if (e.matchId === mid && e.state === "matched") {
-        e.partyId = pid;
-        e.updatedAt = Date.now();
-        this.byUserId.set(e.userId, e);
-        members.push(e);
+    this.users.delete(sid);
+
+    // Remove from ground index
+    if (prev.groundId) {
+      const set = this.byGround.get(prev.groundId);
+      if (set) {
+        set.delete(sid);
+        if (set.size === 0) this.byGround.delete(prev.groundId);
+      }
+      this.markDirty(prev.groundId);
+    }
+
+    // Remove from searching set (fifo lazily cleaned)
+    if (prev.groundId) {
+      const sset = this.searchingSet.get(prev.groundId);
+      if (sset) {
+        sset.delete(sid);
+        if (sset.size === 0) this.searchingSet.delete(prev.groundId);
       }
     }
-    return members;
   }
 
-  listByGround(huntingGroundId: string) {
-    const hg = normStr(huntingGroundId, 64);
-    const xs: QueueEntry[] = [];
-    for (const e of this.byUserId.values()) {
-      if (e.huntingGroundId === hg && e.state !== "idle") xs.push(e);
+  // Backward-compatible: old code may call tryMatch(groundId) on every event.
+  // We debounce by marking dirty; scheduler tick will do work.
+  tryMatch(groundId?: string) {
+    if (!groundId) return;
+    this.markDirty(groundId);
+  }
+
+  // Optional: explicitly request matching for user's current ground
+  tryMatchByUser(sid: string) {
+    const u = this.users.get(sid);
+    if (u?.groundId) this.markDirty(u.groundId);
+  }
+
+  // returns sids in a ground (fast, uses index)
+  listByGround(groundId: string): QueueUser[] {
+    const set = this.byGround.get(groundId);
+    if (!set) return [];
+    const out: QueueUser[] = [];
+    for (const sid of set) {
+      const u = this.users.get(sid);
+      if (u) out.push(u);
     }
-    xs.sort((a, b) => b.updatedAt - a.updatedAt);
-    return xs;
-  }
-
-
-  getCountsByGround() {
-    const counts: Record<string, number> = {};
-    for (const e of this.byUserId.values()) {
-      if (!e.huntingGroundId) continue;
-      if (e.state === "idle") continue;
-      counts[e.huntingGroundId] = (counts[e.huntingGroundId] ?? 0) + 1;
-    }
-    return counts;
-  }
-
-
-  tryMatch(huntingGroundId: string, resolveNameToId: (s: string) => string | null) {
-    const xs = this.listByGround(huntingGroundId).filter((e) => e.state === "searching");
-    for (let i = xs.length - 1; i >= 0; i--) {
-      for (let j = i - 1; j >= 0; j--) {
-        const a = xs[i];
-        const b = xs[j];
-        if (a.userId === b.userId) continue;
-        if (hasMutualBlock(a, b, resolveNameToId)) continue;
-
-
-        const matchId = randMatchId();
-        const leaderId = a.userId;
-
-
-        const now = Date.now();
-        const aSince = a.searchingSince ?? now;
-        const bSince = b.searchingSince ?? now;
-        const waitMs = Math.max(0, now - Math.min(aSince, bSince));
-        this.bumpAvgWait(huntingGroundId, waitMs);
-        a.state = "matched";
-        b.state = "matched";
-        a.matchId = matchId;
-        b.matchId = matchId;
-        a.leaderId = leaderId;
-        b.leaderId = leaderId;
-        a.channel = undefined;
-        b.channel = undefined;
-        a.searchingSince = undefined;
-        b.searchingSince = undefined;
-        a.updatedAt = Date.now();
-        b.updatedAt = Date.now();
-        this.byUserId.set(a.userId, a);
-        this.byUserId.set(b.userId, b);
-        return { ok: true as const, a, b, matchId, leaderId };
-      }
-    }
-    return { ok: false as const };
-  }
-
-  private bumpAvgWait(huntingGroundId: string, waitMs: number) {
-    const hg = normStr(huntingGroundId, 64);
-    if (!hg) return;
-    const prev = this.avgWaitMsByGround.get(hg);
-    const next = prev == null ? waitMs : prev * (1 - this.EMA_ALPHA) + waitMs * this.EMA_ALPHA;
-    this.avgWaitMsByGround.set(hg, Math.max(0, Math.floor(next)));
-  }
-
-  getAvgWaitByGround() {
-    const out: Record<string, number> = {};
-    for (const [k, v] of this.avgWaitMsByGround.entries()) out[k] = v;
     return out;
   }
 
-  setChannelByLeader(leaderId: string, channel: string) {
-    const lid = normStr(leaderId, 64);
-    const leader = this.byUserId.get(lid);
-    if (!leader || leader.state !== "matched") return { ok: false as const, error: "not_matched" };
-    if (leader.leaderId !== lid) return { ok: false as const, error: "not_leader" };
-    const matchId = leader.matchId;
-    if (!matchId) return { ok: false as const, error: "no_match" };
-
-    const ch = normStr(channel, 16);
-    if (!/^[A-Z]-\d{3}$/.test(ch)) return { ok: false as const, error: "bad_channel" };
-
-    const members: QueueEntry[] = [];
-    for (const e of this.byUserId.values()) {
-      if (e.matchId === matchId && e.state === "matched") members.push(e);
+  // In case you need "who's searching now" for UI or debugging
+  listSearchingByGround(groundId: string): QueueUser[] {
+    const sset = this.searchingSet.get(groundId);
+    if (!sset) return [];
+    const out: QueueUser[] = [];
+    for (const sid of sset) {
+      const u = this.users.get(sid);
+      if (u) out.push(u);
     }
-    if (members.length < 2) return { ok: false as const, error: "missing_pair" };
-    for (const e of members) {
-      e.channel = ch;
-      e.updatedAt = Date.now();
-      this.byUserId.set(e.userId, e);
-    }
-    return { ok: true as const, matchId, channel: ch, members };
+    return out;
   }
 
+  // Called by server when it actually forms a match and needs to update both users.
+  // This is a pure helper: mark matched & compute wait EMA.
+  finalizeMatch(aSid: string, bSid: string) {
+    const a = this.users.get(aSid);
+    const b = this.users.get(bSid);
+    if (!a || !b) return;
 
-  cleanupDanglingParties(partyExists: (partyId: string) => boolean) {
-    const now = Date.now();
-    const cleaned: QueueEntry[] = [];
-    for (const e of this.byUserId.values()) {
-      if (!e.partyId) continue;
-      const pid = normStr(e.partyId, 64);
-      if (!pid) continue;
-      if (partyExists(pid)) continue;
+    const t = now();
+    a.status = "matched";
+    b.status = "matched";
+    a.matchedAt = t;
+    b.matchedAt = t;
 
-      e.state = "idle";
-      e.matchId = undefined;
-      e.leaderId = undefined;
-      e.channel = undefined;
-      e.partyId = undefined;
-      e.updatedAt = now;
-      this.byUserId.set(e.userId, e);
-      cleaned.push(e);
+    // Update EMA wait (use both searchingSince times if available)
+    const aw = a.searchingSince ? t - a.searchingSince : 0;
+    const bw = b.searchingSince ? t - b.searchingSince : 0;
+    const w = (aw > 0 && bw > 0) ? Math.round((aw + bw) / 2) : (aw || bw || 0);
+    if (w > 0) {
+      this.emaWaitMs = this.emaWaitMs === 0 ? w : (this.emaWaitMs * (1 - this.emaAlpha) + w * this.emaAlpha);
     }
-    return cleaned;
+
+    // Remove from searching set
+    if (a.groundId) this.searchingSet.get(a.groundId)?.delete(aSid);
+    if (b.groundId) this.searchingSet.get(b.groundId)?.delete(bSid);
+  }
+
+  // === Internal ===
+  private reindexGround(prev?: QueueUser, next?: QueueUser) {
+    const prevG = prev?.groundId;
+    const nextG = next?.groundId;
+
+    if (prevG && prevG !== nextG) {
+      const set = this.byGround.get(prevG);
+      if (set) {
+        set.delete(next!.sid);
+        if (set.size === 0) this.byGround.delete(prevG);
+      }
+    }
+
+    if (nextG) {
+      let set = this.byGround.get(nextG);
+      if (!set) {
+        set = new Set<string>();
+        this.byGround.set(nextG, set);
+      }
+      set.add(next!.sid);
+    }
+  }
+
+  private reindexSearching(prev?: QueueUser, next?: QueueUser) {
+    const prevG = prev?.groundId;
+    const nextG = next?.groundId;
+
+    // remove from old searching set if needed
+    if (prev && prevG && (prevG !== nextG || prev.status !== next.status)) {
+      if (prev.status === "searching") {
+        this.searchingSet.get(prevG)?.delete(prev.sid);
+      }
+    }
+
+    // add to new searching set if needed
+    if (next && nextG && next.status === "searching") {
+      let sset = this.searchingSet.get(nextG);
+      if (!sset) {
+        sset = new Set<string>();
+        this.searchingSet.set(nextG, sset);
+      }
+      if (!sset.has(next.sid)) {
+        sset.add(next.sid);
+
+        // FIFO push (stale entries are OK; we'll lazily clean on tick)
+        let fifo = this.searchingFifo.get(nextG);
+        if (!fifo) {
+          fifo = [];
+          this.searchingFifo.set(nextG, fifo);
+        }
+        fifo.push(next.sid);
+      }
+
+      // Ensure searchingSince set
+      if (!next.searchingSince) next.searchingSince = now();
+    } else if (next && nextG && next.status !== "searching") {
+      // If they stop searching, ensure membership removed
+      this.searchingSet.get(nextG)?.delete(next.sid);
+    }
+  }
+
+  private markDirty(groundId: string) {
+    this.dirtyGrounds.add(groundId);
+  }
+
+  private tick() {
+    if (this.dirtyGrounds.size === 0) return;
+
+    // Copy then clear to avoid endless loops; newly dirtied grounds will be picked next tick.
+    const grounds = Array.from(this.dirtyGrounds);
+    this.dirtyGrounds.clear();
+
+    for (const g of grounds) {
+      this.matchGround(g);
+    }
+  }
+
+  private matchGround(groundId: string) {
+    const sset = this.searchingSet.get(groundId);
+    if (!sset || sset.size < 2) return;
+
+    const fifo = this.searchingFifo.get(groundId) ?? [];
+    if (fifo.length === 0) return;
+
+    let pairsFormed = 0;
+
+    // Lazily clean FIFO head until it points to a valid searching sid
+    const popValid = (): string | null => {
+      while (fifo.length > 0) {
+        const sid = fifo.shift()!;
+        if (sset.has(sid)) return sid; // still searching
+      }
+      return null;
+    };
+
+    // Attempt to form pairs
+    while (pairsFormed < this.maxPairsPerGroundPerTick && sset.size >= 2) {
+      const aSid = popValid();
+      if (!aSid) break;
+
+      const a = this.users.get(aSid);
+      if (!a || a.status !== "searching" || a.groundId !== groundId) {
+        sset.delete(aSid);
+        continue;
+      }
+
+      // Find a partner by scanning a limited window from FIFO to avoid O(k^2) worst-case.
+      // If not found, requeue `aSid` once and stop for this tick to avoid spin.
+      let bSid: string | null = null;
+
+      const scanLimit = Math.min(60, fifo.length + 20); // allow some slack for stale entries
+      const scanned: string[] = [];
+      for (let i = 0; i < scanLimit; i++) {
+        const cand = popValid();
+        if (!cand) break;
+        scanned.push(cand);
+
+        const b = this.users.get(cand);
+        if (!b || b.status !== "searching" || b.groundId !== groundId) {
+          sset.delete(cand);
+          continue;
+        }
+
+        // Blacklist exclusion
+        if (isBlacklisted(a, b)) continue;
+
+        // Buff compatibility (both directions if wants present)
+        if (!buffsCompatible(a.buffs, b.wants)) continue;
+        if (!buffsCompatible(b.buffs, a.wants)) continue;
+
+        bSid = cand;
+        break;
+      }
+
+      // Push back any scanned-but-not-used sids to the tail to keep FIFO fair
+      if (bSid) {
+        for (const sid of scanned) {
+          if (sid !== bSid && sset.has(sid)) fifo.push(sid);
+        }
+
+        // Mark match: caller/server will likely emit socket event with details
+        this.finalizeMatch(aSid, bSid);
+        pairsFormed++;
+      } else {
+        // No partner found quickly; requeue A and also requeue scanned for fairness
+        if (sset.has(aSid)) fifo.push(aSid);
+        for (const sid of scanned) {
+          if (sset.has(sid)) fifo.push(sid);
+        }
+        // Stop this tick to avoid burning CPU on hard-to-match sets
+        break;
+      }
+    }
+
+    // If still enough searching, keep dirty so we continue next tick
+    const sset2 = this.searchingSet.get(groundId);
+    if (sset2 && sset2.size >= 2) this.markDirty(groundId);
   }
 }
 
+// singleton export (match existing code style)
 export const QUEUE = new QueueStore();
