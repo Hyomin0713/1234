@@ -1,10 +1,17 @@
 {
-  "$schema": "https://railway.app/railway.schema.json",
   "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "npm install --include=dev --no-audit --no-fund && npm -w server run build"
+    "builder": "nixpacks",
+    "buildCommand": "npm install --prefer-offline --no-audit --no-fund && npm run build --workspace server",
+    "env": {
+      "NODE_ENV": "production",
+      "NPM_CONFIG_PRODUCTION": "true",
+      "CI": "true"
+    }
+  },
+  "start": {
+    "command": "npm start --workspace server"
   },
   "deploy": {
-    "startCommand": "npm run start"
+    "restartPolicyType": "ON_FAILURE"
   }
 }
