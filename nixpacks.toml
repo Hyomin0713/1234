@@ -1,10 +1,16 @@
-# If Railway ever falls back to Nixpacks phases (without Dockerfile),
-# keep everything pinned to the `server` workspace.
 [phases.install]
-cmds = ["npm install --include=dev --workspace server --prefer-offline --no-audit --no-fund"]
+cmds = [
+  # Install ONLY server workspace deps (including devDeps) so TypeScript/tsc exists during build.
+  "npm ci --include=dev --workspace server --no-audit --no-fund"
+]
 
 [phases.build]
-cmds = ["npm run build --workspace server", "npm prune --omit=dev --workspace server"]
+cmds = [
+  # Build server
+  "npm run build --workspace server",
+  # Remove devDependencies after build so runtime stays slim
+  "npm prune --omit=dev --workspace server"
+]
 
 [start]
 cmd = "npm start --workspace server"
