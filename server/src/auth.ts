@@ -30,6 +30,13 @@ export type Session = {
 const COOKIE_NAME = "ml_session";
 const sessions = new Map<string, Session>();
 
+function normalizeSameSite(v: string): "lax" | "strict" | "none" {
+  const s = String(v).trim().toLowerCase();
+  if (s === "none") return "none";
+  if (s === "strict") return "strict";
+  return "lax";
+}
+
 export function cookieSerialize(
   name: string,
   value: string,
@@ -40,7 +47,10 @@ export function cookieSerialize(
   parts.push(`Path=${opts?.path ?? "/"}`);
   if (opts?.httpOnly ?? true) parts.push("HttpOnly");
   if (opts?.secure) parts.push("Secure");
-  parts.push(`SameSite=${opts?.sameSite ?? "Lax"}`);
+  // Some browsers are picky about the casing (None/Lax/Strict), so normalize it.
+  const ss = (opts?.sameSite ?? "lax").toLowerCase();
+  const ssNorm = ss === "none" ? "None" : ss === "strict" ? "Strict" : "Lax";
+  parts.push(`SameSite=${ssNorm}`);
   if (typeof opts?.maxAge === "number") parts.push(`Max-Age=${Math.max(0, Math.trunc(opts.maxAge))}`);
   return parts.join("; ");
 }
@@ -131,15 +141,40 @@ export function readSessionId(req: any): string | null {
 }
 
 export function setSessionCookie(res: any, sessionId: string, opts: { secure: boolean }) {
+  /**
+   * ✅ 가장 흔한 원인: web(Next.js)과 server(API)가 다른 도메인/사이트면
+   * SameSite=Lax 쿠키는 fetch/XHR에서 안 붙어서 "로그인했는데 프론트는 로그아웃"처럼 보입니다.
+   *
+   * 해결: production에서 기본 SameSite=None + Secure=true
+   * - 환경변수 COOKIE_SAMESITE로 강제 가능 (none|lax|strict)
+   */
+  const isProd = process.env.NODE_ENV === "production";
+  const sameSite = normalizeSameSite(process.env.COOKIE_SAMESITE ?? (isProd ? "none" : "lax"));
+
   res.setHeader(
     "Set-Cookie",
-    cookieSerialize(COOKIE_NAME, sessionId, { httpOnly: true, secure: opts.secure, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 30 })
+    cookieSerialize(COOKIE_NAME, sessionId, {
+      httpOnly: true,
+      secure: opts.secure,
+      sameSite,
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30,
+    })
   );
 }
 
 export function clearSessionCookie(res: any, opts: { secure: boolean }) {
+  const isProd = process.env.NODE_ENV === "production";
+  const sameSite = normalizeSameSite(process.env.COOKIE_SAMESITE ?? (isProd ? "none" : "lax"));
+
   res.setHeader(
     "Set-Cookie",
-    cookieSerialize(COOKIE_NAME, "", { httpOnly: true, secure: opts.secure, sameSite: "lax", path: "/", maxAge: 0 })
+    cookieSerialize(COOKIE_NAME, "", {
+      httpOnly: true,
+      secure: opts.secure,
+      sameSite,
+      path: "/",
+      maxAge: 0,
+    })
   );
 }
