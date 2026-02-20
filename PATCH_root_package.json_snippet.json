@@ -1,0 +1,6 @@
+{
+  "scripts": {
+    "build": "npm run build --workspace server",
+    "start": "npm start --workspace server"
+  }
+}

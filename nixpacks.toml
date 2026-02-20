@@ -1,18 +1,8 @@
-[phases.setup]
-nixPkgs = ["nodejs_20", "npm-10_x"]
-
-# Install deps once (Nixpacks default install is overridden by this file)
 [phases.install]
-cmds = [
-  "npm ci --include=dev --no-audit --no-fund"
-]
+cmds = ["npm install --include=dev --prefer-offline --no-audit --no-fund"]
 
-# Build ONLY the server workspace
 [phases.build]
-cmds = [
-  "npm run build --workspace server"
-]
+cmds = ["npm run build --workspace server"]
 
-# Run ONLY the server workspace
 [start]
 cmd = "npm start --workspace server"
