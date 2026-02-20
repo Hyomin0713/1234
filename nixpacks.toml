@@ -1,30 +1,18 @@
-# Nixpacks build plan override (monorepo: web + server, deploy server only)
-#
-# Goals:
-# - avoid default "install" step running npm install twice
-# - install/build ONLY server workspace
-# - avoid EBUSY on /app/node_modules/.cache
-# - prune devDependencies before runtime
-
 [phases.setup]
-# You can also set this via Railway env: NIXPACKS_NODE_VERSION=20
-# (leaving setup empty is OK; Nixpacks will still install node)
-# nixPkgs = ["nodejs_20"]
+nixPkgs = ["nodejs_20", "npm-10_x"]
 
+# Install deps once (Nixpacks default install is overridden by this file)
 [phases.install]
 cmds = [
-  "rm -rf node_modules/.cache || true",
-  "npm ci --include=dev --no-audit --no-fund --prefer-offline --workspace server"
+  "npm ci --include=dev --no-audit --no-fund"
 ]
-# Cache ONLY npm's download cache (not node_modules/.cache)
-cacheDirectories = ["/root/.npm"]
 
+# Build ONLY the server workspace
 [phases.build]
 cmds = [
-  "npm run build --workspace server",
-  "npm prune --omit=dev --no-audit --no-fund",
-  "rm -rf node_modules/.cache || true"
+  "npm run build --workspace server"
 ]
 
+# Run ONLY the server workspace
 [start]
 cmd = "npm start --workspace server"
