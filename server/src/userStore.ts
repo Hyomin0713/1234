@@ -23,7 +23,11 @@ export class UserStore {
     return this.bySid.get(sid);
   }
 
-  upsert(arg1: any, arg2?: any) {
+  // Accept any-arity calls from different index.ts versions
+  upsert(...args: any[]) {
+    const arg1 = args[0];
+    const arg2 = args[1];
+
     const input: (Partial<UserProfile> & { sid: string }) =
       typeof arg1 === "string" ? { sid: arg1, ...(arg2 ?? {}) } : arg1;
 

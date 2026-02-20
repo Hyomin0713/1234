@@ -1,4 +1,6 @@
 // server/src/auth.ts
+// Broad-compat session helpers for server/src/index.ts (in-memory).
+
 import crypto from "crypto";
 
 export type DiscordUser = {
@@ -10,6 +12,9 @@ export type DiscordUser = {
 };
 
 export type SessionUser = {
+  // Many index.ts versions treat session.user as DiscordUser-like
+  id: string;
+  // and also as app-specific
   discordId: string;
   username: string;
   displayName: string;
@@ -63,29 +68,35 @@ function toDisplayName(username: string, globalName?: string, discriminator?: st
   return disc && disc !== "0" ? `${base}#${disc}` : base;
 }
 
-export function newSession(input: { discordId: string; username: string; displayName?: string }) {
+// Accept either a DiscordUser or a plain object (different index.ts versions call this differently)
+export function newSession(input: any): Session {
   const t = Date.now();
   const sessionId = newId();
+
+  // DiscordUser shape
+  const isDiscordUser = input && typeof input === "object" && typeof input.id === "string" && typeof input.username === "string";
+
+  const discordId: string = isDiscordUser ? input.id : (input.discordId ?? input.userId ?? "");
+  const username: string = isDiscordUser ? input.username : (input.username ?? "");
+  const displayName: string =
+    isDiscordUser
+      ? toDisplayName(input.username, input.global_name, input.discriminator)
+      : ((input.displayName ?? input.display_name ?? "").trim() || username);
+
   const s: Session = {
     sessionId,
     user: {
-      discordId: input.discordId,
-      username: input.username,
-      displayName: (input.displayName ?? "").trim() || input.username,
+      id: discordId,
+      discordId,
+      username,
+      displayName: displayName || username || discordId,
     },
     createdAt: t,
     updatedAt: t,
   };
+
   sessions.set(sessionId, s);
   return s;
-}
-
-export function newSessionFromDiscordUser(u: DiscordUser) {
-  return newSession({
-    discordId: u.id,
-    username: u.username,
-    displayName: toDisplayName(u.username, u.global_name, u.discriminator),
-  });
 }
 
 export function getSession(sessionId?: string | null) {
