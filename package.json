@@ -1,13 +1,9 @@
 {
-  "name": "maerancue",
-  "private": true,
-  "workspaces": [
-    "server",
-    "web"
-  ],
+  "workspaces": ["web", "server"],
   "scripts": {
-    "build": "npm -w web run build && npm -w server run build",
-    "start": "npm -w server run start",
-    "dev": "npm -w server run dev"
+    "build:web": "npm run build --workspace web",
+    "build:server": "npm run build --workspace server",
+    "start:web": "npm start --workspace web",
+    "start:server": "npm start --workspace server"
   }
 }
