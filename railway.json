@@ -4,8 +4,7 @@
     "builder": "NIXPACKS",
     "env": {
       "NODE_ENV": "production",
-      "CI": "true",
-      "NPM_CONFIG_PRODUCTION": "false"
+      "CI": "true"
     }
   },
   "deploy": {

@@ -1,15 +1,18 @@
+# Force Nixpacks to build ONLY the server workspace (monorepo: web + server)
+# Key points:
+# - Use npm install (not npm ci) to avoid EBUSY deleting mounted cache dirs
+# - Install devDeps so tsc exists for build
+# - Prune devDeps after build so runtime is production-only
+
 [phases.install]
 cmds = [
-  # Install ONLY server workspace deps (including devDeps) so TypeScript/tsc exists during build.
-  "npm ci --include=dev --workspace server --no-audit --no-fund"
+  "npm install --include=dev --prefer-offline --no-audit --no-fund"
 ]
 
 [phases.build]
 cmds = [
-  # Build server
   "npm run build --workspace server",
-  # Remove devDependencies after build so runtime stays slim
-  "npm prune --omit=dev --workspace server"
+  "npm prune --omit=dev"
 ]
 
 [start]
