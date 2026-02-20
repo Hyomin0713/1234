@@ -1,6 +1,6 @@
 {
   "build": {
-    "builder": "nixpacks",
+    "builder": "NIXPACKS",
     "buildCommand": "npm install --prefer-offline --no-audit --no-fund && npm run build --workspace server",
     "env": {
       "NODE_ENV": "production",
@@ -8,10 +8,8 @@
       "CI": "true"
     }
   },
-  "start": {
-    "command": "npm start --workspace server"
-  },
   "deploy": {
+    "startCommand": "npm start --workspace server",
     "restartPolicyType": "ON_FAILURE"
   }
 }
