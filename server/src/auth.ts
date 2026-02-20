@@ -1,11 +1,23 @@
 // server/src/auth.ts
 import crypto from "crypto";
 
-export type Session = {
-  sessionId: string;
+export type DiscordUser = {
+  id: string;
+  username: string;
+  discriminator?: string;
+  global_name?: string;
+  avatar?: string | null;
+};
+
+export type SessionUser = {
   discordId: string;
   username: string;
-  nickname?: string;
+  displayName: string;
+};
+
+export type Session = {
+  sessionId: string;
+  user: SessionUser;
   createdAt: number;
   updatedAt: number;
 };
@@ -13,13 +25,11 @@ export type Session = {
 const COOKIE_NAME = "ml_session";
 const sessions = new Map<string, Session>();
 
-export function cookieSerialize(name: string, value: string, opts?: {
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: "lax" | "strict" | "none";
-  path?: string;
-  maxAge?: number;
-}) {
+export function cookieSerialize(
+  name: string,
+  value: string,
+  opts?: { httpOnly?: boolean; secure?: boolean; sameSite?: "lax" | "strict" | "none"; path?: string; maxAge?: number }
+) {
   const parts: string[] = [];
   parts.push(`${name}=${encodeURIComponent(value)}`);
   parts.push(`Path=${opts?.path ?? "/"}`);
@@ -33,8 +43,7 @@ export function cookieSerialize(name: string, value: string, opts?: {
 export function parseCookies(cookieHeader?: string) {
   const out: Record<string, string> = {};
   if (!cookieHeader) return out;
-  const parts = cookieHeader.split(";");
-  for (const p of parts) {
+  for (const p of cookieHeader.split(";")) {
     const idx = p.indexOf("=");
     if (idx === -1) continue;
     const k = p.slice(0, idx).trim();
@@ -48,19 +57,35 @@ function newId() {
   return crypto.randomBytes(16).toString("hex");
 }
 
-export function newSession(input: { discordId: string; username: string; nickname?: string }) {
+function toDisplayName(username: string, globalName?: string, discriminator?: string) {
+  const base = (globalName ?? "").trim() || username;
+  const disc = (discriminator ?? "").trim();
+  return disc && disc !== "0" ? `${base}#${disc}` : base;
+}
+
+export function newSession(input: { discordId: string; username: string; displayName?: string }) {
   const t = Date.now();
   const sessionId = newId();
   const s: Session = {
     sessionId,
-    discordId: input.discordId,
-    username: input.username,
-    nickname: input.nickname,
+    user: {
+      discordId: input.discordId,
+      username: input.username,
+      displayName: (input.displayName ?? "").trim() || input.username,
+    },
     createdAt: t,
     updatedAt: t,
   };
   sessions.set(sessionId, s);
   return s;
+}
+
+export function newSessionFromDiscordUser(u: DiscordUser) {
+  return newSession({
+    discordId: u.id,
+    username: u.username,
+    displayName: toDisplayName(u.username, u.global_name, u.discriminator),
+  });
 }
 
 export function getSession(sessionId?: string | null) {
@@ -97,25 +122,13 @@ export function readSessionId(req: any): string | null {
 export function setSessionCookie(res: any, sessionId: string, opts: { secure: boolean }) {
   res.setHeader(
     "Set-Cookie",
-    cookieSerialize(COOKIE_NAME, sessionId, {
-      httpOnly: true,
-      secure: opts.secure,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 30,
-    })
+    cookieSerialize(COOKIE_NAME, sessionId, { httpOnly: true, secure: opts.secure, sameSite: "lax", path: "/", maxAge: 60 * 60 * 24 * 30 })
   );
 }
 
 export function clearSessionCookie(res: any, opts: { secure: boolean }) {
   res.setHeader(
     "Set-Cookie",
-    cookieSerialize(COOKIE_NAME, "", {
-      httpOnly: true,
-      secure: opts.secure,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 0,
-    })
+    cookieSerialize(COOKIE_NAME, "", { httpOnly: true, secure: opts.secure, sameSite: "lax", path: "/", maxAge: 0 })
   );
 }
